@@ -61,15 +61,25 @@ async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
     user: process.env.REDSHIFT_USER,
     password: process.env.REDSHIFT_PASSWORD,
     ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: 8000,
     statement_timeout: 15000,
   });
-  await c.connect();
-  try { return await fn(c); } finally { await c.end(); }
+  // Without an 'error' listener, an async socket error (e.g. a firewall RST) crashes the whole
+  // function (FUNCTION_INVOCATION_FAILED) instead of surfacing as a catchable rejection.
+  c.on("error", (err) => console.error("pg client error:", err?.message || err));
+  try {
+    await c.connect();
+    return await fn(c);
+  } finally {
+    try { await c.end(); } catch { /* ignore */ }
+  }
 }
 
 export default async function handler(req: any, res: any) {
   try {
+    const missing = ["REDSHIFT_HOST", "REDSHIFT_DATABASE", "REDSHIFT_USER", "REDSHIFT_PASSWORD"].filter((k) => !process.env[k]);
+    if (missing.length) return res.status(500).json({ error: "Missing environment variables: " + missing.join(", ") });
+
     const tenant = resolveTenant(req);
     const f = reqFilters(req);
     const key = JSON.stringify({ tenant, f });
