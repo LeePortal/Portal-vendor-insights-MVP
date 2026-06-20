@@ -1,0 +1,11 @@
+# dependencies & build output (per-app folders have their own too)
+node_modules/
+dist/
+.angular/
+.next/
+out/
+# misc
+*.log
+.DS_Store
+.vercel
+.env*

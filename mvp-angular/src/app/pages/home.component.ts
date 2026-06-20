@@ -1,0 +1,75 @@
+import { Component, inject } from "@angular/core";
+import { CommonModule } from "@angular/common";
+import { AuthService } from "../core/auth.service";
+import { DataService } from "../core/data.service";
+import { TrendChartComponent } from "../components/charts.component";
+import { fmtCompact, fmtNumber } from "../core/format";
+
+interface Kp { label: string; value: string; yoy: number; }
+
+@Component({
+  selector: "app-home",
+  standalone: true,
+  imports: [CommonModule, TrendChartComponent],
+  template: `
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <h1>{{ isAdmin ? "Network sales performance" : "Welcome, " + firstName }}</h1>
+        <p>{{ isAdmin ? "Across all subscribing brands on the Portal network — trailing 12 months vs. prior year." : "How your products are selling across the Portal network — trailing 12 months vs. prior year." }}</p>
+      </div>
+      <span class="badge-sample">SAMPLE DATA</span>
+    </div>
+
+    <div class="grid c4" style="margin-bottom:16px">
+      <div class="pcard kpi" *ngFor="let kp of kpis">
+        <div class="label">{{ kp.label }}</div>
+        <div class="value">{{ kp.value }}</div>
+        <div class="delta" [class.up]="kp.yoy > 0.05" [class.down]="kp.yoy < -0.05">{{ kp.yoy >= 0 ? "▲" : "▼" }} {{ absPct(kp.yoy) }} YoY</div>
+      </div>
+    </div>
+
+    <div class="pcard">
+      <div class="hd"><div class="t">Sales performance</div><div class="s">Revenue by month, trailing 12 months</div></div>
+      <div class="bd"><app-trend [points]="trendPts" yLabel="Revenue ($)" xLabel="Month" valueFormat="money"></app-trend></div>
+    </div>
+  `,
+})
+export class HomeComponent {
+  private auth = inject(AuthService);
+  private data = inject(DataService);
+  session = this.auth.session()!;
+  isAdmin = this.session.role === "admin";
+  brandName = this.isAdmin ? "Portal network" : this.data.getVendor(this.session.vendorId || "")?.name || "your brand";
+  firstName = (this.session.name || "").trim().split(/\s+/)[0] || this.session.name;
+
+  kpis: Kp[] = [];
+  trendPts: { label: string; value: number }[] = [];
+
+  constructor() {
+    const CUR = { start: "2025-07-01", end: "2026-06-30" };
+    const PRIOR = { start: "2024-07-01", end: "2025-06-30" };
+    const vids = this.isAdmin ? this.data.listVendors().map((v) => v.id) : [this.session.vendorId!];
+    let cR = 0, pR = 0, cP = 0, pP = 0, cD = 0, pD = 0, cCR = 0, pCR = 0;
+    for (const vid of vids) {
+      const c = this.data.getKpis({ vendorId: vid, start: CUR.start, end: CUR.end });
+      const p = this.data.getKpis({ vendorId: vid, start: PRIOR.start, end: PRIOR.end });
+      cR += c.revenue; pR += p.revenue; cP += c.proposals; pP += p.proposals; cD += c.activeDealers; pD += p.activeDealers;
+      const ar = 0.4 + this.rng(vid) * 0.14;
+      cCR += ar; pCR += ar - 0.02 + this.rng(vid + "p") * 0.04;
+    }
+    const curCR = (cCR / vids.length) * 100;
+    const priCR = (pCR / vids.length) * 100;
+    const yoy = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
+    this.kpis = [
+      { label: "Active dealers", value: fmtNumber(cD), yoy: yoy(cD, pD) },
+      { label: "Unique proposals", value: fmtNumber(cP), yoy: yoy(cP, pP) },
+      { label: "Revenue", value: fmtCompact(cR), yoy: yoy(cR, pR) },
+      { label: "Close rate", value: Math.round(curCR) + "%", yoy: yoy(curCR, priCR) },
+    ];
+    const trends = vids.map((vid) => this.data.getRevenueTrend({ vendorId: vid, start: CUR.start, end: CUR.end }));
+    this.trendPts = trends[0].map((tp, i) => ({ label: tp.label, value: trends.reduce((s, t) => s + (t[i] ? t[i].revenue : 0), 0) }));
+  }
+
+  absPct(n: number): string { return Math.abs(n).toFixed(1) + "%"; }
+  private rng(s: string): number { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 0) % 1000) / 1000; }
+}
