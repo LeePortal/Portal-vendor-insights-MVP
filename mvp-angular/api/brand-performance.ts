@@ -18,8 +18,8 @@
  * visible-brand allow-list and parent-category restriction come from the AUTHENTICATED
  * identity (resolveTenant), never from the request. All SQL is parameterized.
  */
-import { Client } from "pg";
-
+// pg is loaded dynamically inside the handler (see loadClient) so a missing/failed module
+// surfaces as a readable JSON error instead of crashing the whole function at load time.
 const FACT = process.env.FACT_TABLE || "analytics.proposal_parts";
 
 // --- naive per-instance cache (swap for Vercel KV in prod; data refreshes nightly) ---
@@ -53,7 +53,17 @@ function scope(t: Tenant, f: ReturnType<typeof reqFilters>) {
   return { clause: where.length ? "WHERE " + where.join(" AND ") : "", vals };
 }
 
-async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
+async function loadClientCtor(): Promise<any> {
+  try {
+    const pg: any = await import("pg");
+    return pg.Client || pg.default?.Client;
+  } catch (e: any) {
+    throw new Error("Could not load 'pg' module — it is likely not installed in the deployment. " + (e?.message || e));
+  }
+}
+
+async function withClient<T>(fn: (c: any) => Promise<T>): Promise<T> {
+  const Client = await loadClientCtor();
   const c = new Client({
     host: process.env.REDSHIFT_HOST,
     port: Number(process.env.REDSHIFT_PORT || 5439),
