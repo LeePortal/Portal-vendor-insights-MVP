@@ -206,6 +206,7 @@ export interface MultiSeries { label: string; values: number[]; color: string; }
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
               <polyline *ngFor="let s of series" [attr.points]="line(s)" fill="none" [attr.stroke]="s.color" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
+              <g *ngFor="let s of series"><circle *ngFor="let p of pts(s)" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="series.length && series[0].values.length <= 3 ? 5 : 3" [attr.fill]="s.color"></circle></g>
             </svg>
             <div class="chart-guide" *ngIf="hi>=0 && axis.length" [style.left.%]="guideX"></div>
             <div class="chart-tip" *ngIf="hi>=0 && axis[hi]" [style.left.%]="guideX" [class.flip]="hi > axis.length/2">
@@ -229,7 +230,8 @@ export class MultiLineChartComponent {
   W = 640; H = 240; pad = 16; ph = 250; hi = -1;
   fv(v: number): string { return fmtVal(v == null ? 0 : v, this.valueFormat); }
   get max(): number { return Math.max(1, ...this.series.flatMap((s) => s.values)); }
-  line(s: MultiSeries): string { const n = s.values.length; return s.values.map((v, i) => (n <= 1 ? 0 : (i / (n - 1)) * this.W).toFixed(1) + "," + (this.H - (v / this.max) * (this.H - this.pad)).toFixed(1)).join(" "); }
+  line(s: MultiSeries): string { const n = s.values.length; return s.values.map((v, i) => (n <= 1 ? this.W / 2 : (i / (n - 1)) * this.W).toFixed(1) + "," + (this.H - (v / this.max) * (this.H - this.pad)).toFixed(1)).join(" "); }
+  pts(s: MultiSeries): { x: number; y: number }[] { const n = s.values.length; return s.values.map((v, i) => ({ x: n <= 1 ? this.W / 2 : (i / (n - 1)) * this.W, y: this.H - (v / this.max) * (this.H - this.pad) })); }
   get gridYs(): number[] { return [0.2, 0.4, 0.6, 0.8].map((fr) => this.H - fr * (this.H - this.pad)); }
   get gridXs(): number[] { return [0.2, 0.4, 0.6, 0.8].map((fr) => fr * this.W); }
   get axisLabels(): string[] { const n = this.axis.length; if (n <= 2) return this.axis; return [this.axis[0], this.axis[Math.floor(n / 2)], this.axis[n - 1]]; }

@@ -213,6 +213,7 @@ module.exports = async (req, res) => {
         add("parentcat", f.parents); add("subcat", f.subs); add("state", f.states); add("status", f.statuses);
         return { clause: w.length ? " AND " + w.join(" AND ") : "", vals: v };
       };
+      const dCond = (alias) => (curStart ? ` AND ${alias}.submitted >= ${curStart}` : "");
       const wB = sf("b", 2), lA = sf("a", 2), dA = sf("a", 2);
       const [wonRes, lostRes, dispRes] = await Promise.all([
         p.query(
@@ -220,7 +221,7 @@ module.exports = async (req, res) => {
              SELECT b.proposalitemid, b.model, b.subcat, MAX(b.quantity) AS qty, MAX(b.total_sell) AS sell, COUNT(DISTINCT a.brand) AS comps
              FROM ${FACT} b JOIN ${FACT} a
                ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND a.deleted = true AND a.brand <> b.brand
-             WHERE b.brand = $1 AND b.deleted = false${wB.clause}
+             WHERE b.brand = $1 AND b.deleted = false${wB.clause}${dCond("b")}
              GROUP BY b.proposalitemid, b.model, b.subcat)
            SELECT model, MAX(subcat) AS subcat, SUM(qty) AS units, SUM(sell) AS sales, SUM(comps) AS competitors_beaten
            FROM wi GROUP BY model ORDER BY units DESC LIMIT 12`,
@@ -230,7 +231,7 @@ module.exports = async (req, res) => {
              SELECT a.proposalitemid, a.model, a.parentcat, MAX(a.quantity) AS qty, MAX(a.total_sell) AS sell
              FROM ${FACT} a JOIN ${FACT} b
                ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND b.deleted = false AND b.brand <> a.brand
-             WHERE a.brand = $1 AND a.deleted = true${lA.clause}
+             WHERE a.brand = $1 AND a.deleted = true${lA.clause}${dCond("a")}
              GROUP BY a.proposalitemid, a.model, a.parentcat)
            SELECT model, MAX(parentcat) AS subcat, SUM(qty) AS lost_units, SUM(sell) AS lost_sales
            FROM li GROUP BY model ORDER BY lost_units DESC LIMIT 12`,
@@ -239,7 +240,7 @@ module.exports = async (req, res) => {
           `SELECT a.model AS lost_model, b.brand AS disp_brand, b.model AS disp_model, SUM(b.quantity) AS units
            FROM ${FACT} a JOIN ${FACT} b
              ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND b.deleted = false AND b.brand <> a.brand
-           WHERE a.brand = $1 AND a.deleted = true${dA.clause}
+           WHERE a.brand = $1 AND a.deleted = true${dA.clause}${dCond("a")}
            GROUP BY a.model, b.brand, b.model`,
           [tenant.brand, ...dA.vals]),
       ]);
