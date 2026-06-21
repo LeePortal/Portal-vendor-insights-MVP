@@ -154,7 +154,7 @@ module.exports = async (req, res) => {
     // run all five aggregates concurrently (separate pooled connections)
     const [brandRes, subRes, itemRes, seriesRes, kpiRes] = await Promise.all([
       p.query(
-        `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, APPROXIMATE COUNT(DISTINCT model) AS skus
+        `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, COUNT(DISTINCT model) AS skus
          FROM ${FACT} WHERE ${whereH} GROUP BY brand ORDER BY sales DESC`, fb.vals),
       p.query(
         `SELECT subcat, SUM(total_sell) AS sales, SUM(quantity) AS units
@@ -269,26 +269,26 @@ module.exports = async (req, res) => {
         xp.query(
           `SELECT DATE_TRUNC('${u}', submitted) AS period, SUM(total_sell) AS cat_value,
                   SUM(CASE WHEN brand=$1 THEN total_sell ELSE 0 END) AS brand_value,
-                  APPROXIMATE COUNT(DISTINCT proposalid) AS cat_props,
-                  APPROXIMATE COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
+                  COUNT(DISTINCT proposalid) AS cat_props,
+                  COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
            FROM ${FACT} WHERE deleted=false AND submitted IS NOT NULL${subWin}${sF.clause}
            GROUP BY DATE_TRUNC('${u}', submitted) ORDER BY period`,
           [tenant.brand, ...sF.vals]),
         xp.query(
-          `SELECT DATE_TRUNC('${u}', submitted) AS period, APPROXIMATE COUNT(DISTINCT proposalid) AS all_props
+          `SELECT DATE_TRUNC('${u}', submitted) AS period, COUNT(DISTINCT proposalid) AS all_props
            FROM ${FACT} WHERE deleted=false AND submitted IS NOT NULL${subWin}${stCol}
            GROUP BY DATE_TRUNC('${u}', submitted)`,
           stVals),
         xp.query(
           `SELECT DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) AS period, SUM(total_sell) AS cat_value,
                   SUM(CASE WHEN brand=$1 THEN total_sell ELSE 0 END) AS brand_value,
-                  APPROXIMATE COUNT(DISTINCT proposalid) AS cat_props,
-                  APPROXIMATE COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
+                  COUNT(DISTINCT proposalid) AS cat_props,
+                  COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
            FROM ${FACT} WHERE deleted=false AND accepteddate IS NOT NULL AND closed_won_flag=true${accWin}${aF.clause}
            GROUP BY DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) ORDER BY period`,
           [tenant.brand, ...aF.vals]),
         xp.query(
-          `SELECT DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) AS period, APPROXIMATE COUNT(DISTINCT proposalid) AS all_props
+          `SELECT DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) AS period, COUNT(DISTINCT proposalid) AS all_props
            FROM ${FACT} WHERE deleted=false AND accepteddate IS NOT NULL AND closed_won_flag=true${accWin}${stCol}
            GROUP BY DATE_TRUNC('${u}', CAST(accepteddate AS DATE))`,
           stVals),
