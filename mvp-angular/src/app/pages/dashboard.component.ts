@@ -25,7 +25,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="badge-sample">{{ dataMode === 'api' ? 'LIVE DATA' : 'SAMPLE DATA' }}</span>
         <button class="pbtn" [class.primary]="subscribed" (click)="toggleSub()">{{ subscribed ? "Subscribed" : "Subscribe" }}</button>
-        <button class="pbtn" (click)="exportCsv()">⬇ Export CSV</button>
+        <button class="pbtn" [disabled]="csvBusy" (click)="exportCsv()">{{ csvBusy ? "Preparing…" : "⬇ Export CSV" }}</button>
         <button class="pbtn" (click)="pull()">Pull report</button>
         <button *ngIf="isAdmin" class="pbtn dark" (click)="publish()">Publish to company…</button>
       </div>
@@ -61,6 +61,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div *ngIf="loadError" class="pcard" style="border-color:var(--negative);color:var(--negative);margin-bottom:16px;padding:12px 16px">{{ loadError }}</div>
+    <div *ngIf="notice" class="pcard" style="border-color:#ff5000;color:#ff5000;background:var(--accent-soft);margin-bottom:16px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px"><span>{{ notice }}</span><a style="cursor:pointer;font-weight:600" (click)="notice = ''">Dismiss</a></div>
     <p *ngIf="dataMode === 'api'" class="muted" style="font-size:12px;margin:-4px 0 14px">Live Redshift data (refreshed nightly). Proposal funnel &amp; competitive displacement are hidden in live mode until their metrics are defined with the data team.</p>
 
     <div class="dash-wrap">
@@ -271,6 +272,8 @@ export class DashboardComponent implements OnInit {
   dataMode = DATA_MODE;
   lastShareSeries: ShareSeries = { labels: [], rows: [], series: {} };
   loadError = "";
+  notice = "";
+  csvBusy = false;
   loading = false;
   firstLoad = true;
 
@@ -369,24 +372,38 @@ export class DashboardComponent implements OnInit {
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }
 
-  exportCsv(): void {
+  /**
+   * BY-PROPOSAL line-item export. In live (api) mode it pulls one row per proposal line item for
+   * every brand matching the applied category/state/status filters + Date Range, straight from
+   * Redshift (UTF-8 BOM included so Excel opens it clean). In sample mode it falls back to the
+   * item-level summary the synthetic generator can produce.
+   */
+  async exportCsv(): Promise<void> {
+    const date = new Date().toISOString().slice(0, 10);
+    const fname = "Portal Market Insights - by proposal - " + this.viewAs + " " + date + ".csv";
+    if (this.dataMode === "api") {
+      this.csvBusy = true;
+      this.notice = "";
+      try {
+        const r = await this.src.exportProposals(this.filter());
+        if (!r.rows) { this.notice = "No line items match the current filters — nothing to export."; return; }
+        this.notice = r.truncated
+          ? "Exported the first " + r.rows.toLocaleString("en-US") + " line items (export cap). Narrow the category, state, status or date range to pull the rest."
+          : "Exported " + r.rows.toLocaleString("en-US") + " line items.";
+        this.dl.request({ kind: "csv", filename: fname, build: () => r.csv });
+      } catch (e: any) {
+        this.loadError = "Couldn't build the export: " + ((e && e.message) || e);
+      } finally {
+        this.csvBusy = false;
+      }
+      return;
+    }
+    // Sample-data fallback: item-level summary (no raw proposal grain available offline).
     const esc = (v: string | number) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const meta: (string | number)[][] = [
-      ["Portal.io Market Insights — Category Share by Item"],
-      ["Company", this.viewAs === "admin" ? "All companies (admin)" : this.viewAs],
-      ["Date range", this.horizon],
-      ["Parent categories", this.parents.join("; ") || "All"],
-      ["Sub-categories", this.subs.join("; ") || "All"],
-      ["States", this.states.join("; ") || "All"],
-      ["Proposal statuses", this.dataMode === "api" ? (this.statuses.join("; ") || "All") : "n/a (sample data)"],
-      ["Generated", new Date().toISOString().slice(0, 10) + " · " + this.session.name],
-      [],
-      ["Brand", "Model", "Description", "Total Sales (USD)", "$ Share %", "Units", "Unit Share %", "Avg Sell (USD)"],
-    ];
-    const lines = meta.map((r) => r.map(esc).join(","));
+    const header = ["brand", "model", "description", "total_sell", "dollar_share_pct", "units", "unit_share_pct", "avg_sell"];
+    const lines = [header.join(",")];
     for (const it of this.itemRows) lines.push([it.brand, it.model, it.desc, Math.round(it.sales), it.sharePct.toFixed(2), Math.round(it.units), it.unitSharePct.toFixed(2), it.avgSell.toFixed(2)].map(esc).join(","));
-    const fname = "Portal.io Market Insights - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".csv";
-    this.dl.request({ kind: "csv", filename: fname, build: () => lines.join("\n") });
+    this.dl.request({ kind: "csv", filename: fname, build: () => String.fromCharCode(0xfeff) + lines.join("\r\n") + "\r\n" });
   }
   pull(): void {
     const fname = "Portal.io Market Insights Report - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".html";
@@ -402,6 +419,15 @@ export class DashboardComponent implements OnInit {
     const itemHtml = this.itemRows.slice(0, 8).map((r) => `<tr${r.brand === this.viewAs ? ' class="me"' : ""}><td>${this.esc(r.brand)}</td><td>${this.esc(r.model)}</td><td class="n">${this.cur(r.sales)}</td><td class="n">${this.pct(r.sharePct / 100)}</td></tr>`).join("");
     const wonHtml = this.won.slice(0, 5).map((d) => `<li>${this.esc(d.model)} — ${this.num(d.units)} units, ${this.cur(d.sales)} (beat ${d.competitorsBeaten})</li>`).join("") || '<li class="muted">None in the selected range</li>';
     const lostHtml = this.lost.slice(0, 5).map((d) => `<li>${this.esc(d.model)} — ${this.num(d.lostUnits)} units lost</li>`).join("") || '<li class="muted">None in the selected range</li>';
+    const brandLabel = this.viewAs === "admin" ? "Viewed brand" : this.viewAs;
+    const idxChart = this.svgMulti(this.compSeries, this.compAxis, "Share of category (%)");
+    const subV = this.submitted[0], accV = this.accepted[0];
+    const subChart = subV ? this.svgDual(subV.points, brandLabel, subV.vfmt, subV.ylabel, subV.hasBrand) : "";
+    const accChart = accV ? this.svgDual(accV.points, brandLabel, accV.vfmt, accV.ylabel, accV.hasBrand) : "";
+    const idxSection = idxChart ? `<h2>Competitive index — share of category</h2>${idxChart}` : "";
+    const trendSection = (subChart || accChart)
+      ? `<h2>Proposal trends</h2>${subChart ? `<div class="ct">Category value on submitted proposals</div>${subChart}` : ""}${accChart ? `<div class="ct">Accepted &amp; completed proposals</div>${accChart}` : ""}`
+      : "";
     return `<!doctype html><html><head><meta charset="utf-8"><title>Portal Market Insights — ${this.esc(company)}</title>
 <style>
 *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#333;margin:0 auto;padding:32px;max-width:980px}
@@ -416,7 +442,10 @@ h2{font-size:14px;border-top:1px solid #eee;padding-top:14px;margin:18px 0 8px}
 table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #f0f0f0}th{color:#8a8a8a;font-weight:600}td.n,th.n{text-align:right}
 tr.me{background:#fff1ea;font-weight:700}
 .two{display:flex;gap:24px}.two>div{flex:1}ul{margin:6px 0;padding-left:18px;font-size:12px}li{margin:3px 0}.muted{color:#aaa;list-style:none;margin-left:-18px}
-.note{font-size:11px;color:#8a8a8a;border-top:1px solid #eee;margin-top:18px;padding-top:10px}.ft{font-size:10px;color:#aaa;margin-top:14px;text-align:right}
+.ft{font-size:10px;color:#aaa;margin-top:14px;text-align:right}
+.chartbox{border:1px solid #eee;border-radius:8px;padding:10px 12px;margin:6px 0 14px;break-inside:avoid}
+.cyt{font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+.legend{font-size:11px;color:#555;margin-top:6px}.ct{font-size:12px;font-weight:700;color:#333;margin:10px 0 2px}
 @media print{body{padding:0}}
 </style></head><body>
 <div class="hdr"><div><div class="wm">Portal</div><div class="tag">Where brands and integrators connect</div></div><div class="hr-r">Market Insights<br>Brand Performance Report</div></div>
@@ -424,15 +453,67 @@ tr.me{background:#fff1ea;font-weight:700}
 <h1>${this.esc(company)}</h1><div class="sub">Market performance overview</div>
 <div class="scope">${this.esc(scope)} · Statuses: ${this.esc(statuses)}</div>
 <div class="cards">${card("Brand revenue", this.money(this.kpis.revenue), this.kpis.revenueYoY)}${card("Units sold", this.num(this.kpis.units), this.kpis.unitsYoY)}${card("Proposals", this.num(this.kpis.proposals), this.kpis.proposalsYoY)}${card("Active dealers", this.num(this.kpis.dealers), this.kpis.dealersYoY)}</div>
+${idxSection}
 <h2>Category share by brand</h2>
 <table><thead><tr><th>#</th><th>Brand</th><th class="n">Total sales</th><th class="n">$ share</th><th class="n">Units</th><th class="n"># SKUs</th></tr></thead><tbody>${brandHtml}</tbody></table>
 <h2>Top items</h2>
 <table><thead><tr><th>Brand</th><th>Model</th><th class="n">Total sales</th><th class="n">$ share</th></tr></thead><tbody>${itemHtml}</tbody></table>
+${trendSection}
 <h2>Competitive displacement</h2>
 <div class="two"><div><div style="font-size:12px;font-weight:700;color:#1d9e75">Business won — competitors displaced</div><ul>${wonHtml}</ul></div><div><div style="font-size:12px;font-weight:700;color:#d85a30">Business lost — you were displaced</div><ul>${lostHtml}</ul></div></div>
-<div class="note">Source: Portal Market Insights (${this.dataMode === "api" ? "live Redshift data, refreshed nightly" : "sample data"}). Figures reflect the filters shown above. Sales and share are catalog product totals; counts are exact. Aggregate market data only — no individual dealer is identified.</div>
 <div class="ft">Generated ${new Date().toISOString().slice(0, 10)} · ${this.esc(company)} · ${this.esc(this.session.name)} · Portal.io</div>
 </body></html>`;
+  }
+
+  // ---- Static SVG charts for the printable report (no Angular runtime there). ----
+  private axv(v: number, f: "money" | "pct" | "num"): string {
+    if (f === "money") return this.money(v);
+    if (f === "pct") return (Math.round(v * 10) / 10) + "%";
+    return this.num(v);
+  }
+  private xLabels(labels: string[], xOf: (i: number) => number, y: number): string {
+    const n = labels.length; if (!n) return "";
+    const idx = n <= 2 ? labels.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
+    return idx.map((i) => `<text x="${xOf(i).toFixed(1)}" y="${y}" text-anchor="middle" font-size="9" fill="#8a8a8a">${this.esc(labels[i])}</text>`).join("");
+  }
+  /** Competitive index: multi-line share-of-category (%) for the selected brands. */
+  private svgMulti(series: MultiSeries[], axis: string[], yLabel: string): string {
+    const live = series.filter((s) => s.values && s.values.length);
+    if (!live.length || !axis.length) return "";
+    const W = 860, H = 250, padL = 50, padR = 14, padT = 12, padB = 30, iw = W - padL - padR, ih = H - padT - padB;
+    const n = axis.length, max = Math.max(1, ...live.flatMap((s) => s.values.filter((v) => v != null)));
+    const x = (i: number) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+    const y = (v: number) => padT + ih - (Math.max(0, v || 0) / max) * ih;
+    const grid = [0, 0.25, 0.5, 0.75, 1].map((g) => { const gy = padT + ih - g * ih; return `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="#ececef" stroke-width="1"/><text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#8a8a8a">${this.axv(g * max, "pct")}</text>`; }).join("");
+    const lines = live.map((s) => {
+      const pts = s.values.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
+      const dots = s.values.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${n <= 3 ? 4 : 2.5}" fill="${s.color}"/>`).join("");
+      return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"/>${dots}`;
+    }).join("");
+    const legend = live.slice(0, 10).map((s, i) => `<span style="white-space:nowrap;margin-right:14px"><span style="display:inline-block;width:11px;height:3px;background:${s.color};vertical-align:middle"></span> ${this.esc(s.label)}</span>`).join("");
+    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="100%" style="height:auto;display:block">${grid}${lines}${this.xLabels(axis, x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
+  }
+  /** Proposal trend: category (dark, left axis) vs viewed brand (orange dashed, right axis). */
+  private svgDual(points: DualPoint[], brandLabel: string, vfmt: "money" | "pct" | "num", yLabel: string, showBrand: boolean): string {
+    if (!points || !points.length) return "";
+    const W = 860, H = 240, padL = 60, padR = 60, padT = 12, padB = 30, iw = W - padL - padR, ih = H - padT - padB;
+    const n = points.length, catMax = Math.max(1, ...points.map((p) => p.category)), brMax = Math.max(1, ...points.map((p) => p.brand));
+    const x = (i: number) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+    const yc = (v: number) => padT + ih - (Math.max(0, v || 0) / catMax) * ih;
+    const yb = (v: number) => padT + ih - (Math.max(0, v || 0) / brMax) * ih;
+    const grid = [0, 0.25, 0.5, 0.75, 1].map((g) => {
+      const gy = padT + ih - g * ih;
+      const left = `<text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#27272a">${this.axv(g * catMax, vfmt)}</text>`;
+      const right = showBrand ? `<text x="${W - padR + 6}" y="${(gy + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="#ff5000">${this.axv(g * brMax, vfmt)}</text>` : "";
+      return `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="#ececef" stroke-width="1"/>${left}${right}`;
+    }).join("");
+    const catLine = `<polyline points="${points.map((p, i) => x(i).toFixed(1) + "," + yc(p.category).toFixed(1)).join(" ")}" fill="none" stroke="#27272a" stroke-width="2"/>` +
+      points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${yc(p.category).toFixed(1)}" r="${n <= 3 ? 4 : 2.5}" fill="#27272a"/>`).join("");
+    const brLine = showBrand ? `<polyline points="${points.map((p, i) => x(i).toFixed(1) + "," + yb(p.brand).toFixed(1)).join(" ")}" fill="none" stroke="#ff5000" stroke-width="2.5" stroke-dasharray="7 4"/>` +
+      points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${yb(p.brand).toFixed(1)}" r="${n <= 3 ? 4 : 2.5}" fill="#ff5000"/>`).join("") : "";
+    const legend = `<span style="margin-right:14px"><span style="display:inline-block;width:11px;height:3px;background:#27272a;vertical-align:middle"></span> Category</span>` +
+      (showBrand ? `<span><span style="display:inline-block;width:11px;height:3px;background:#ff5000;vertical-align:middle"></span> ${this.esc(brandLabel)} <span style="color:#ff5000">(right axis)</span></span>` : "");
+    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="100%" style="height:auto;display:block">${grid}${catLine}${brLine}${this.xLabels(points.map((p) => p.label), x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
   }
 
   money(n: number): string { if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B"; if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return "$" + Math.round(n / 1e3) + "k"; return "$" + Math.round(n); }

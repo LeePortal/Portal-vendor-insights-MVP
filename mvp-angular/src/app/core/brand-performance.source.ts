@@ -29,6 +29,25 @@ export class BrandPerformanceSource {
     return this.synthetic(f);
   }
 
+  /**
+   * BY-PROPOSAL raw line-item CSV for the current filters (api mode only). All brands matching the
+   * company's category gating; dealerid is an internal id. Returns the CSV text (already UTF-8 BOM'd
+   * by the backend) plus the row count and whether the export was capped.
+   */
+  async exportProposals(f: BrandPerfFilter): Promise<{ csv: string; rows: number; truncated: boolean }> {
+    const params: Record<string, string> = {
+      parents: f.parents.join(","), subs: f.subs.join(","), states: f.states.join(","),
+      statuses: (f.statuses || []).join(","), horizon: f.horizon,
+    };
+    const resp = await firstValueFrom(
+      this.http.get(API_BASE_URL + "/api/proposal-export", { params, responseType: "text", observe: "response" }));
+    return {
+      csv: resp.body || "",
+      rows: Number(resp.headers.get("X-Export-Rows") || 0),
+      truncated: resp.headers.get("X-Export-Truncated") === "1",
+    };
+  }
+
   /** Build the exact payload from the in-browser generator (also documents the API contract). */
   private synthetic(f: BrandPerfFilter): BrandPerfPayload {
     return {
