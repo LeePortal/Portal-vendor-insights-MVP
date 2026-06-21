@@ -491,7 +491,7 @@ ${trendSection}
       return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"/>${dots}`;
     }).join("");
     const legend = live.slice(0, 10).map((s, i) => `<span style="white-space:nowrap;margin-right:14px"><span style="display:inline-block;width:11px;height:3px;background:${s.color};vertical-align:middle"></span> ${this.esc(s.label)}</span>`).join("");
-    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="100%" style="height:auto;display:block">${grid}${lines}${this.xLabels(axis, x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
+    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto;display:block">${grid}${lines}${this.xLabels(axis, x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
   }
   /** Proposal trend: category (dark, left axis) vs viewed brand (orange dashed, right axis). */
   private svgDual(points: DualPoint[], brandLabel: string, vfmt: "money" | "pct" | "num", yLabel: string, showBrand: boolean): string {
@@ -513,7 +513,7 @@ ${trendSection}
       points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${yb(p.brand).toFixed(1)}" r="${n <= 3 ? 4 : 2.5}" fill="#ff5000"/>`).join("") : "";
     const legend = `<span style="margin-right:14px"><span style="display:inline-block;width:11px;height:3px;background:#27272a;vertical-align:middle"></span> Category</span>` +
       (showBrand ? `<span><span style="display:inline-block;width:11px;height:3px;background:#ff5000;vertical-align:middle"></span> ${this.esc(brandLabel)} <span style="color:#ff5000">(right axis)</span></span>` : "");
-    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="100%" style="height:auto;display:block">${grid}${catLine}${brLine}${this.xLabels(points.map((p) => p.label), x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
+    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto;display:block">${grid}${catLine}${brLine}${this.xLabels(points.map((p) => p.label), x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
   }
 
   money(n: number): string { if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B"; if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return "$" + Math.round(n / 1e3) + "k"; return "$" + Math.round(n); }

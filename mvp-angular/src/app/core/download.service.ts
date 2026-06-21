@@ -40,10 +40,14 @@ export class DownloadService {
       URL.revokeObjectURL(url);
     } else if (p.kind === "pdf") {
       if (p.build) {
+        // Navigate the new window to a real Blob document instead of document.write(): a written
+        // document can paint only partially on screen (it renders fully only when printed).
         const html = p.build();
-        const w = window.open("", "_blank");
-        if (w) { w.document.open(); w.document.write(html); w.document.close(); }
-        else { const blob = new Blob([html], { type: "text/html;charset=utf-8" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = p.filename; a.click(); URL.revokeObjectURL(url); }
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const w = window.open(url, "_blank");
+        if (!w) { const a = document.createElement("a"); a.href = url; a.download = p.filename; a.click(); }
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
       } else {
         window.print();
       }
