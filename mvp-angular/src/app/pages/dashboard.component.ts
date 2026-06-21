@@ -212,7 +212,7 @@ export class DashboardComponent implements OnInit {
   horizons = ["MTD", "QTD", "YTD", "All"];
   buyingGroupOptions = this.an.buyingGroups;
   stateOptions = this.an.states;
-  statusOptions = ["Opened", "Submitted", "Changes Required", "Accepted", "Completed", "Declined", "Expired", "Draft", "Email Failed"];
+  statusOptions = ["Completed", "Accepted", "Submitted", "Opened", "Draft", "Changes Required", "Declined", "Expired", "Email Failed"];
   restrictParents: string[] = [];
 
   viewAs = "admin";

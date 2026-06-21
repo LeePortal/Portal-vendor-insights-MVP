@@ -4,27 +4,26 @@
  * Plain CommonJS (not TypeScript) on purpose: the Angular tsconfig (module ES2022 / bundler)
  * makes Vercel mis-load a .ts function.
  *
- * DATA SEMANTICS (unfiltered base — important so dashboard filters stay accurate):
- *   - The ONLY non-user exclusion is `deleted = false` (soft-deleted/voided line items).
- *   - NO normalization, NO status restriction (all proposal statuses included),
- *     NO buying-group filter (no such column in this table).
- *   - The user's explicit parent/sub/state selections are the only other filters applied.
+ * Returns the BrandPerfPayload shape the app expects (src/app/core/brand-performance.contract.ts).
  *
- * Competitive model: category-wide brand AGGREGATES (the viewed brand sees real share vs
- * competitors) — brand-level totals only, never competitors' raw line-item detail.
+ * PERFORMANCE: the 5 aggregate queries run IN PARALLEL on a reused connection pool, so a cold
+ * (uncached) query set finishes within the serverless time limit. statement_timeout caps each.
  *
- * LIVE: brand share, sub-categories, items, KPIs (+ real YoY), share-over-time trend.
+ * DATA SEMANTICS (unfiltered base): only non-user exclusion is `deleted = false`. NO normalization,
+ * NO status restriction unless the user picks statuses. User filters: parent/sub/state/status.
+ * Competitive model: category-wide brand AGGREGATES only (never competitors' raw line-item detail).
+ *
+ * LIVE: brand share, sub-categories, items, KPIs (+ real YoY), share-over-time trend, status filter.
  * TODO (needs Portal metric definitions): proposal funnel/value, win/loss displacement.
  *
- * Env vars: REDSHIFT_HOST, REDSHIFT_PORT(5439), REDSHIFT_DATABASE, REDSHIFT_USER,
- *           REDSHIFT_PASSWORD, FACT_TABLE (e.g. public.portal_mi_data_for_redshift)
+ * Env: REDSHIFT_HOST, REDSHIFT_PORT(5439), REDSHIFT_DATABASE, REDSHIFT_USER, REDSHIFT_PASSWORD,
+ *      FACT_TABLE (e.g. public.portal_mi_data_for_redshift)
  */
 const FACT = process.env.FACT_TABLE || "public.portal_mi_data_for_redshift";
 
 const cache = new Map();
 const TTL_MS = 1000 * 60 * 60 * 3; // 3h
 
-// granularity + how many trailing buckets for the share-over-time trend
 const AGG = {
   daily: { unit: "day", n: 90 },
   weekly: { unit: "week", n: 26 },
@@ -33,10 +32,29 @@ const AGG = {
 };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// TODO: replace with real auth — derive viewed brand from the verified session/JWT (Portal SSO).
-function resolveTenant(_req) {
-  return { brand: "Sonos", allowedParents: [] /* [] = all categories */ };
+// Reused across warm invocations so we don't reconnect to Redshift every request.
+let _pool = null;
+function pool() {
+  if (_pool) return _pool;
+  const { Pool } = require("pg");
+  _pool = new Pool({
+    host: process.env.REDSHIFT_HOST,
+    port: Number(process.env.REDSHIFT_PORT || 5439),
+    database: process.env.REDSHIFT_DATABASE,
+    user: process.env.REDSHIFT_USER,
+    password: process.env.REDSHIFT_PASSWORD,
+    ssl: { rejectUnauthorized: false },
+    max: 8,
+    connectionTimeoutMillis: 8000,
+    statement_timeout: 9000,
+    idleTimeoutMillis: 30000,
+  });
+  _pool.on("error", (err) => console.error("pg pool error:", (err && err.message) || err));
+  return _pool;
 }
+
+// TODO: replace with real auth — derive viewed brand from the verified session/JWT (Portal SSO).
+function resolveTenant(_req) { return { brand: "Sonos", allowedParents: [] }; }
 
 function reqFilters(req) {
   const q = req.query || {};
@@ -44,7 +62,7 @@ function reqFilters(req) {
   return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), agg: String(q.agg || "monthly") };
 }
 
-/** Category-wide WHERE (no brand restriction): deleted hygiene + user/governance category & state filters. */
+/** Category-wide WHERE: deleted hygiene + user/governance category, state, status filters. */
 function baseFilter(t, f) {
   const where = ["COALESCE(deleted, false) = false"];
   const vals = [];
@@ -57,25 +75,6 @@ function baseFilter(t, f) {
   add("state", f.states, null);
   add("status", f.statuses, null); // empty = all statuses (unfiltered)
   return { where: where.join(" AND "), vals };
-}
-
-async function withClient(fn) {
-  let Client;
-  try { Client = require("pg").Client; }
-  catch (e) { throw new Error("Could not load 'pg' module. " + ((e && e.message) || e)); }
-  const c = new Client({
-    host: process.env.REDSHIFT_HOST,
-    port: Number(process.env.REDSHIFT_PORT || 5439),
-    database: process.env.REDSHIFT_DATABASE,
-    user: process.env.REDSHIFT_USER,
-    password: process.env.REDSHIFT_PASSWORD,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 8000,
-    statement_timeout: 25000,
-  });
-  c.on("error", (err) => console.error("pg client error:", (err && err.message) || err));
-  try { await c.connect(); return await fn(c); }
-  finally { try { await c.end(); } catch (_) { /* ignore */ } }
 }
 
 const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v));
@@ -106,30 +105,27 @@ module.exports = async (req, res) => {
     if (hit && Date.now() - hit.at < TTL_MS) return res.status(200).json(hit.data);
 
     const fb = baseFilter(tenant, f);
+    const u = AGG[agg].unit, n = AGG[agg].n;
+    const kvals = fb.vals.slice(); kvals.push(tenant.brand);
+    const bp = `$${kvals.length}`;
+    const p = pool();
 
-    const payload = await withClient(async (c) => {
-      // brand aggregates (competitive share)
-      const brandRes = await c.query(
+    // run all five aggregates concurrently (separate pooled connections)
+    const [brandRes, subRes, itemRes, seriesRes, kpiRes] = await Promise.all([
+      p.query(
         `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, COUNT(DISTINCT model) AS skus
-         FROM ${FACT} WHERE ${fb.where} GROUP BY brand ORDER BY sales DESC`, fb.vals);
-      // sub-categories
-      const subRes = await c.query(
+         FROM ${FACT} WHERE ${fb.where} GROUP BY brand ORDER BY sales DESC`, fb.vals),
+      p.query(
         `SELECT subcat, SUM(total_sell) AS sales, SUM(quantity) AS units
-         FROM ${FACT} WHERE ${fb.where} GROUP BY subcat ORDER BY sales DESC`, fb.vals);
-      // items
-      const itemRes = await c.query(
+         FROM ${FACT} WHERE ${fb.where} GROUP BY subcat ORDER BY sales DESC`, fb.vals),
+      p.query(
         `SELECT brand, model, LEFT(MAX(name), 90) AS name, SUM(total_sell) AS sales, SUM(quantity) AS units
-         FROM ${FACT} WHERE ${fb.where} GROUP BY brand, model ORDER BY sales DESC LIMIT 200`, fb.vals);
-      // share-over-time: brand sales per period over the trailing window
-      const u = AGG[agg].unit, n = AGG[agg].n;
-      const seriesRes = await c.query(
+         FROM ${FACT} WHERE ${fb.where} GROUP BY brand, model ORDER BY sales DESC LIMIT 200`, fb.vals),
+      p.query(
         `SELECT brand, DATE_TRUNC('${u}', submitted) AS period, SUM(total_sell) AS sales
          FROM ${FACT} WHERE ${fb.where} AND submitted >= DATEADD(${u}, -${n}, GETDATE())
-         GROUP BY brand, DATE_TRUNC('${u}', submitted) ORDER BY period`, fb.vals);
-      // KPIs for viewed brand (+ real YoY by submitted date)
-      const kvals = fb.vals.slice(); kvals.push(tenant.brand);
-      const bp = `$${kvals.length}`;
-      const kpiRes = await c.query(
+         GROUP BY brand, DATE_TRUNC('${u}', submitted) ORDER BY period`, fb.vals),
+      p.query(
         `SELECT SUM(total_sell) AS rev_all, SUM(quantity) AS un_all,
                 COUNT(DISTINCT proposalid) AS prop_all, COUNT(DISTINCT dealerid) AS deal_all,
                 SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_cur,
@@ -140,65 +136,62 @@ module.exports = async (req, res) => {
                 COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_prev,
                 COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_cur,
                 COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_prev
-         FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}`, kvals);
+         FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}`, kvals),
+    ]);
 
-      const brandRows = brandRes.rows.map((r) => ({
-        brand: r.brand, sales: num(r.sales), units: num(r.units), skus: num(r.skus),
-        sharePct: 0, unitSharePct: 0, avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
-      }));
-      const totalSales = brandRows.reduce((a, b) => a + b.sales, 0) || 1;
-      const totalUnits = brandRows.reduce((a, b) => a + b.units, 0) || 1;
-      brandRows.forEach((b) => { b.sharePct = (b.sales / totalSales) * 100; b.unitSharePct = (b.units / totalUnits) * 100; });
+    const brandRows = brandRes.rows.map((r) => ({
+      brand: r.brand, sales: num(r.sales), units: num(r.units), skus: num(r.skus),
+      sharePct: 0, unitSharePct: 0, avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
+    }));
+    const totalSales = brandRows.reduce((a, b) => a + b.sales, 0) || 1;
+    const totalUnits = brandRows.reduce((a, b) => a + b.units, 0) || 1;
+    brandRows.forEach((b) => { b.sharePct = (b.sales / totalSales) * 100; b.unitSharePct = (b.units / totalUnits) * 100; });
 
-      const itemRows = itemRes.rows.map((r) => ({
-        brand: r.brand, model: r.model, desc: r.name || r.model,
-        sales: num(r.sales), units: num(r.units),
-        sharePct: (num(r.sales) / totalSales) * 100, unitSharePct: (num(r.units) / totalUnits) * 100,
-        avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
-      }));
-      const subcatRows = subRes.rows.map((r) => ({
-        subcat: r.subcat, sales: num(r.sales), units: num(r.units),
-        pctOfCat: (num(r.sales) / totalSales) * 100, unitPctOfCat: (num(r.units) / totalUnits) * 100,
-        avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
-      }));
+    const itemRows = itemRes.rows.map((r) => ({
+      brand: r.brand, model: r.model, desc: r.name || r.model,
+      sales: num(r.sales), units: num(r.units),
+      sharePct: (num(r.sales) / totalSales) * 100, unitSharePct: (num(r.units) / totalUnits) * 100,
+      avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
+    }));
+    const subcatRows = subRes.rows.map((r) => ({
+      subcat: r.subcat, sales: num(r.sales), units: num(r.units),
+      pctOfCat: (num(r.sales) / totalSales) * 100, unitPctOfCat: (num(r.units) / totalUnits) * 100,
+      avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
+    }));
 
-      // pivot share-over-time into { labels, series{brand:[pct...]} }
-      const periodsMap = new Map(); // key -> {date, total}
-      const cell = new Map();       // brand|key -> sales
-      for (const r of seriesRes.rows) {
-        const k = pkey(r.period);
-        if (!periodsMap.has(k)) periodsMap.set(k, { date: r.period, total: 0 });
-        periodsMap.get(k).total += num(r.sales);
-        cell.set(r.brand + "|" + k, num(r.sales));
-      }
-      const periodKeys = [...periodsMap.keys()].sort();
-      const labels = periodKeys.map((k) => fmtPeriod(periodsMap.get(k).date, agg));
-      const series = {};
-      for (const b of brandRows) {
-        series[b.brand] = periodKeys.map((k) => {
-          const tot = periodsMap.get(k).total || 1;
-          const s = cell.get(b.brand + "|" + k) || 0;
-          return Math.round((s / tot) * 10000) / 100;
-        });
-      }
+    const periodsMap = new Map();
+    const cell = new Map();
+    for (const r of seriesRes.rows) {
+      const k = pkey(r.period);
+      if (!periodsMap.has(k)) periodsMap.set(k, { date: r.period, total: 0 });
+      periodsMap.get(k).total += num(r.sales);
+      cell.set(r.brand + "|" + k, num(r.sales));
+    }
+    const periodKeys = [...periodsMap.keys()].sort();
+    const labels = periodKeys.map((k) => fmtPeriod(periodsMap.get(k).date, agg));
+    const series = {};
+    for (const b of brandRows) {
+      series[b.brand] = periodKeys.map((k) => {
+        const tot = periodsMap.get(k).total || 1;
+        return Math.round(((cell.get(b.brand + "|" + k) || 0) / tot) * 10000) / 100;
+      });
+    }
 
-      const k = kpiRes.rows[0] || {};
-      const kpis = {
-        revenue: num(k.rev_all), units: num(k.un_all), proposals: num(k.prop_all), dealers: num(k.deal_all),
-        revenueYoY: yoy(num(k.rev_cur), num(k.rev_prev)),
-        unitsYoY: yoy(num(k.un_cur), num(k.un_prev)),
-        proposalsYoY: yoy(num(k.prop_cur), num(k.prop_prev)),
-        dealersYoY: yoy(num(k.deal_cur), num(k.deal_prev)),
-      };
+    const k = kpiRes.rows[0] || {};
+    const kpis = {
+      revenue: num(k.rev_all), units: num(k.un_all), proposals: num(k.prop_all), dealers: num(k.deal_all),
+      revenueYoY: yoy(num(k.rev_cur), num(k.rev_prev)),
+      unitsYoY: yoy(num(k.un_cur), num(k.un_prev)),
+      proposalsYoY: yoy(num(k.prop_cur), num(k.prop_prev)),
+      dealersYoY: yoy(num(k.deal_cur), num(k.deal_prev)),
+    };
 
-      return {
-        brandRows, itemRows, subcatRows,
-        share: { labels, rows: brandRows, series },
-        kpis,
-        submitted: [], accepted: [], won: [], lost: [], // TODO: needs Portal metric definitions
-      };
-    });
-
+    const payload = {
+      brandRows, itemRows, subcatRows,
+      share: { labels, rows: brandRows, series },
+      kpis,
+      submitted: [], accepted: [], won: [], lost: [],
+    };
     cache.set(key, { at: Date.now(), data: payload });
     res.status(200).json(payload);
   } catch (e) {
