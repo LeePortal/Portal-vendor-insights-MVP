@@ -6,7 +6,10 @@ import { DataService } from "../core/data.service";
 import { DownloadService } from "../core/download.service";
 import { VendorAdminService } from "../core/vendor-admin.service";
 import { DASHBOARDS } from "../core/models";
-import { AnalyticsService, AFilter, BrandShareRow, ItemRow, SubcatRow, DualPoint, WonRow, LostRow, BrandKpis } from "../core/analytics.service";
+import { AnalyticsService, AFilter, BrandShareRow, ItemRow, SubcatRow, DualPoint, WonRow, LostRow, BrandKpis, ShareSeries } from "../core/analytics.service";
+import { BrandPerformanceSource } from "../core/brand-performance.source";
+import { ProposalSeriesResult } from "../core/brand-performance.contract";
+import { DATA_MODE } from "../core/app-config";
 import { TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSeries, PALETTE } from "../components/charts.component";
 import { MultiSelectComponent } from "../components/multiselect.component";
 
@@ -20,7 +23,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h1>{{ title }}</h1><p>Category performance across the Portal network. <span class="muted" *ngIf="viewAs !== 'admin'">· {{ viewAs }}</span></p></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span class="badge-sample">SAMPLE DATA</span>
+        <span class="badge-sample">{{ dataMode === 'api' ? 'LIVE DATA' : 'SAMPLE DATA' }}</span>
         <button class="pbtn" [class.primary]="subscribed" (click)="toggleSub()">{{ subscribed ? "Subscribed" : "Subscribe" }}</button>
         <button class="pbtn" (click)="exportCsv()">⬇ Export CSV</button>
         <button class="pbtn" (click)="pull()">Pull report</button>
@@ -47,14 +50,18 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
       <app-multiselect label="Parent category" allLabel="All categories" [options]="parentOptions" [selected]="parents" (selectedChange)="onParents($event)"></app-multiselect>
       <app-multiselect label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="subs = $event; rebuild()"></app-multiselect>
-      <app-multiselect label="Buying group" allLabel="All buying groups" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
+      <app-multiselect *ngIf="dataMode === 'synthetic'" label="Buying group" allLabel="All buying groups" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
       <app-multiselect label="State" allLabel="All states" [options]="stateOptions" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
-      <div class="filt"><label>Normalization <span class="info-i" title="Filters out brand-new accounts so you see true year-over-year performance.">&#9432;</span></label>
+      <app-multiselect *ngIf="dataMode === 'api'" label="Proposal status" allLabel="All statuses" [search]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
+      <div class="filt" *ngIf="dataMode === 'synthetic'"><label>Normalization <span class="info-i" title="Filters out brand-new accounts so you see true year-over-year performance.">&#9432;</span></label>
         <label class="switch"><input type="checkbox" [checked]="normalize" (change)="normalize = !normalize; rebuild()" /><span class="track"></span></label>
       </div>
       <div style="flex:1"></div>
       <button class="pbtn" (click)="reset()">Reset filters</button>
     </div>
+
+    <div *ngIf="loadError" class="pcard" style="border-color:var(--negative);color:var(--negative);margin-bottom:16px;padding:12px 16px">{{ loadError }}</div>
+    <p *ngIf="dataMode === 'api'" class="muted" style="font-size:12px;margin:-4px 0 14px">Live Redshift data (refreshed nightly). Proposal funnel &amp; competitive displacement are hidden in live mode until their metrics are defined with the data team.</p>
 
     <div class="grid c4" style="margin-bottom:16px">
       <div class="pcard kpi"><div class="label">Brand Revenue</div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
@@ -125,24 +132,24 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
     </div>
 
-    <h2 style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Category value on Submitted proposals</h2>
-    <div class="grid c2">
+    <h2 *ngIf="submitted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Category value on Submitted proposals</h2>
+    <div class="grid c2" *ngIf="submitted.length">
       <div class="pcard span2" *ngFor="let w of submitted">
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="viewAs" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
     </div>
 
-    <h2 style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Accepted &amp; Completed proposals</h2>
-    <div class="grid c2">
+    <h2 *ngIf="accepted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Accepted &amp; Completed proposals</h2>
+    <div class="grid c2" *ngIf="accepted.length">
       <div class="pcard span2" *ngFor="let w of accepted">
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="viewAs" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
     </div>
 
-    <h2 style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
-    <div class="grid c2" style="align-items:start">
+    <h2 *ngIf="won.length || lost.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
+    <div class="grid c2" style="align-items:start" *ngIf="won.length || lost.length">
       <div class="pcard">
         <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><div class="s">Line items where {{ viewAs === 'admin' ? 'the brand' : viewAs }} replaced a competitor</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
@@ -193,6 +200,7 @@ export class DashboardComponent implements OnInit {
   private auth = inject(AuthService);
   private data = inject(DataService);
   private an = inject(AnalyticsService);
+  private src = inject(BrandPerformanceSource);
   private dl = inject(DownloadService);
   private va = inject(VendorAdminService);
 
@@ -204,6 +212,7 @@ export class DashboardComponent implements OnInit {
   horizons = ["MTD", "QTD", "YTD", "All"];
   buyingGroupOptions = this.an.buyingGroups;
   stateOptions = this.an.states;
+  statusOptions = ["Opened", "Submitted", "Changes Required", "Accepted", "Completed", "Declined", "Expired", "Draft", "Email Failed"];
   restrictParents: string[] = [];
 
   viewAs = "admin";
@@ -214,6 +223,7 @@ export class DashboardComponent implements OnInit {
   subs: string[] = [];
   buyingGroups: string[] = [];
   states: string[] = [];
+  statuses: string[] = [];
   subscribed = false;
 
   brandRows: BrandShareRow[] = [];
@@ -230,6 +240,9 @@ export class DashboardComponent implements OnInit {
   expandedLost: string | null = null;
   catSales = 0; catUnits = 0; totalSkus = 0; myShare = 0; myskus = 0;
   kpis: BrandKpis = { revenue: 0, units: 0, proposals: 0, dealers: 0, revenueYoY: 0, unitsYoY: 0, proposalsYoY: 0, dealersYoY: 0 };
+  dataMode = DATA_MODE;
+  lastShareSeries: ShareSeries = { labels: [], rows: [], series: {} };
+  loadError = "";
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get("id") || "overview";
@@ -248,31 +261,37 @@ export class DashboardComponent implements OnInit {
   get subOptions(): string[] { return this.parents.length ? this.an.subsForParents(this.parents) : []; }
 
   private filter(): AFilter {
-    return { brand: this.viewAs, parents: this.parents, subs: this.subs, buyingGroups: this.buyingGroups, states: this.states, normalize: this.normalize, agg: this.agg, horizon: this.horizon };
+    return { brand: this.viewAs, parents: this.parents, subs: this.subs, buyingGroups: this.buyingGroups, states: this.states, statuses: this.statuses, normalize: this.normalize, agg: this.agg, horizon: this.horizon };
   }
-  rebuild(resetComp = false): void {
+  async rebuild(resetComp = false): Promise<void> {
     const f = this.filter();
-    this.brandRows = this.an.brandShare(f);
-    this.itemRows = this.an.itemShare(f);
-    this.subcatRows = this.an.subcatBreakdown(f);
-    const ss = this.an.shareSeries(f);
-    this.compRows = ss.rows.slice(0, 10);
-    this.compAxis = ss.labels;
-    const present = new Set(this.compRows.map((r) => r.brand));
-    if (resetComp || !this.selectedBrands.some((b) => present.has(b))) this.selectedBrands = this.defaultComp();
-    else this.selectedBrands = this.selectedBrands.filter((b) => present.has(b));
-    this.buildCompSeries(ss.series);
-    this.kpis = this.an.brandKpis(f);
-    this.won = this.an.displacementWon(f);
-    this.lost = this.an.displacementLost(f);
-    this.catSales = this.brandRows.reduce((s, r) => s + r.sales, 0);
-    this.catUnits = this.brandRows.reduce((s, r) => s + r.units, 0);
-    this.totalSkus = this.brandRows.reduce((s, r) => s + r.skus, 0);
-    const mine = this.brandRows.find((r) => r.brand === this.viewAs);
-    this.myShare = mine ? mine.sharePct / 100 : 0;
-    this.myskus = mine ? mine.skus : 0;
-    this.submitted = this.widgets(f, "submitted");
-    this.accepted = this.widgets(f, "accepted");
+    try {
+      const p = await this.src.get(f);
+      this.brandRows = p.brandRows;
+      this.itemRows = p.itemRows;
+      this.subcatRows = p.subcatRows;
+      this.lastShareSeries = p.share;
+      this.compRows = p.share.rows.slice(0, 10);
+      this.compAxis = p.share.labels;
+      const present = new Set(this.compRows.map((r) => r.brand));
+      if (resetComp || !this.selectedBrands.some((b) => present.has(b))) this.selectedBrands = this.defaultComp();
+      else this.selectedBrands = this.selectedBrands.filter((b) => present.has(b));
+      this.buildCompSeries(p.share.series);
+      this.kpis = p.kpis;
+      this.won = p.won;
+      this.lost = p.lost;
+      this.catSales = this.brandRows.reduce((s, r) => s + r.sales, 0);
+      this.catUnits = this.brandRows.reduce((s, r) => s + r.units, 0);
+      this.totalSkus = this.brandRows.reduce((s, r) => s + r.skus, 0);
+      const mine = this.brandRows.find((r) => r.brand === this.viewAs);
+      this.myShare = mine ? mine.sharePct / 100 : 0;
+      this.myskus = mine ? mine.skus : 0;
+      this.submitted = this.widgets(p.submitted);
+      this.accepted = this.widgets(p.accepted);
+      this.loadError = "";
+    } catch (e: any) {
+      this.loadError = "Couldn't load live data: " + ((e && e.message) || e);
+    }
   }
   private defaultComp(): string[] {
     const top = this.compRows.slice(0, 10).map((r) => r.brand);
@@ -289,30 +308,29 @@ export class DashboardComponent implements OnInit {
   toggleComp(brand: string): void {
     const i = this.selectedBrands.indexOf(brand);
     i >= 0 ? this.selectedBrands.splice(i, 1) : this.selectedBrands.push(brand);
-    const ss = this.an.shareSeries(this.filter());
-    this.buildCompSeries(ss.series);
+    this.buildCompSeries(this.lastShareSeries.series);
   }
-  topN(n: number): void { this.selectedBrands = this.compRows.slice(0, n).map((r) => r.brand); this.buildCompSeries(this.an.shareSeries(this.filter()).series); }
-  allComp(): void { this.selectedBrands = this.compRows.map((r) => r.brand); this.buildCompSeries(this.an.shareSeries(this.filter()).series); }
+  topN(n: number): void { this.selectedBrands = this.compRows.slice(0, n).map((r) => r.brand); this.buildCompSeries(this.lastShareSeries.series); }
+  allComp(): void { this.selectedBrands = this.compRows.map((r) => r.brand); this.buildCompSeries(this.lastShareSeries.series); }
   clearComp(): void { this.selectedBrands = []; this.compSeries = []; }
 
-  private widgets(f: AFilter, status: "submitted" | "accepted"): Widget[] {
-    const defs: { k: "value" | "count" | "pct" | "avg"; t: string; vfmt: "money" | "pct" | "num"; yl: string }[] = [
-      { k: "value", t: "Category $ on proposals", vfmt: "money", yl: "$ on proposals" },
-      { k: "count", t: "# of proposals containing the category", vfmt: "num", yl: "# proposals" },
-      { k: "pct", t: "% of proposals containing the category", vfmt: "pct", yl: "% of proposals" },
-      { k: "avg", t: "Average $ per proposal", vfmt: "money", yl: "Avg $ / proposal" },
-    ];
-    return defs.map((d) => {
-      const r = this.an.proposalSeries(f, d.k, status);
-      const value = d.k === "pct" ? Math.round(r.total) + "%" : d.k === "count" ? this.num(r.total) : this.money(r.total);
-      return { title: d.t, value, yoy: r.yoy, points: r.points, hasBrand: r.hasBrand, vfmt: d.vfmt, ylabel: d.yl };
+  private widgets(list: ProposalSeriesResult[]): Widget[] {
+    const meta: Record<string, { t: string; vfmt: "money" | "pct" | "num"; yl: string }> = {
+      value: { t: "Category $ on proposals", vfmt: "money", yl: "$ on proposals" },
+      count: { t: "# of proposals containing the category", vfmt: "num", yl: "# proposals" },
+      pct: { t: "% of proposals containing the category", vfmt: "pct", yl: "% of proposals" },
+      avg: { t: "Average $ per proposal", vfmt: "money", yl: "Avg $ / proposal" },
+    };
+    return (list || []).map((r) => {
+      const m = meta[r.kind] || meta["value"];
+      const value = r.kind === "pct" ? Math.round(r.total) + "%" : r.kind === "count" ? this.num(r.total) : this.money(r.total);
+      return { title: m.t, value, yoy: r.yoy, points: r.points, hasBrand: r.hasBrand, vfmt: m.vfmt, ylabel: m.yl };
     });
   }
 
   onParents(v: string[]): void { this.parents = v; this.subs = this.subs.filter((s) => this.subOptions.includes(s)); this.rebuild(); }
   setView(v: string): void { this.viewAs = v; this.parents = []; this.subs = []; this.rebuild(true); }
-  reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.rebuild(true); }
+  reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.statuses = []; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.rebuild(true); }
   toggleSub(): void { this.subscribed = !this.subscribed; }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }

@@ -7,6 +7,7 @@ export interface AFilter {
   subs: string[];
   buyingGroups: string[];
   states: string[];
+  statuses?: string[]; // proposal statuses (live mode only); empty = all
   normalize: boolean;
   agg: string;
   horizon: string;

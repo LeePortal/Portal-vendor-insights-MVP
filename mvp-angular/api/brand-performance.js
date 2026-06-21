@@ -1,27 +1,39 @@
 /**
  * /api/brand-performance — Brand Performance Overview from live Redshift data.
  *
- * Plain CommonJS (not TypeScript) on purpose: the Angular project's tsconfig
- * (module: ES2022, moduleResolution: bundler) makes Vercel mis-load a .ts function.
+ * Plain CommonJS (not TypeScript) on purpose: the Angular tsconfig (module ES2022 / bundler)
+ * makes Vercel mis-load a .ts function.
  *
- * Returns the BrandPerfPayload shape the app expects (src/app/core/brand-performance.contract.ts).
- * Direct `pg` connection to Redshift; all config from Vercel env vars:
- *   REDSHIFT_HOST, REDSHIFT_PORT (default 5439), REDSHIFT_DATABASE, REDSHIFT_USER,
- *   REDSHIFT_PASSWORD, FACT_TABLE (e.g. public.portal_mi_data_for_redshift)
+ * DATA SEMANTICS (unfiltered base — important so dashboard filters stay accurate):
+ *   - The ONLY non-user exclusion is `deleted = false` (soft-deleted/voided line items).
+ *   - NO normalization, NO status restriction (all proposal statuses included),
+ *     NO buying-group filter (no such column in this table).
+ *   - The user's explicit parent/sub/state selections are the only other filters applied.
  *
- * Competitive model: category-wide brand AGGREGATES are returned (so the viewed brand sees its
- * real share vs competitors) — only brand-level totals, never competitors' raw line-item detail.
- * The viewed brand (tenant) is used to compute its own headline KPIs and is flagged for the UI.
+ * Competitive model: category-wide brand AGGREGATES (the viewed brand sees real share vs
+ * competitors) — brand-level totals only, never competitors' raw line-item detail.
  *
- * IMPLEMENTED (live): brand share, sub-category breakdown, item share, KPIs (+ real YoY).
- * TODO (next step): share-over-time series, proposal funnel/value, win/loss displacement.
+ * LIVE: brand share, sub-categories, items, KPIs (+ real YoY), share-over-time trend.
+ * TODO (needs Portal metric definitions): proposal funnel/value, win/loss displacement.
+ *
+ * Env vars: REDSHIFT_HOST, REDSHIFT_PORT(5439), REDSHIFT_DATABASE, REDSHIFT_USER,
+ *           REDSHIFT_PASSWORD, FACT_TABLE (e.g. public.portal_mi_data_for_redshift)
  */
 const FACT = process.env.FACT_TABLE || "public.portal_mi_data_for_redshift";
 
 const cache = new Map();
 const TTL_MS = 1000 * 60 * 60 * 3; // 3h
 
-// TODO: replace with real auth — derive the viewed brand from the verified session/JWT (Portal SSO).
+// granularity + how many trailing buckets for the share-over-time trend
+const AGG = {
+  daily: { unit: "day", n: 90 },
+  weekly: { unit: "week", n: 26 },
+  monthly: { unit: "month", n: 12 },
+  quarterly: { unit: "quarter", n: 8 },
+};
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// TODO: replace with real auth — derive viewed brand from the verified session/JWT (Portal SSO).
 function resolveTenant(_req) {
   return { brand: "Sonos", allowedParents: [] /* [] = all categories */ };
 }
@@ -29,10 +41,10 @@ function resolveTenant(_req) {
 function reqFilters(req) {
   const q = req.query || {};
   const arr = (v) => (v ? String(v).split(",").filter(Boolean) : []);
-  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states) };
+  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), agg: String(q.agg || "monthly") };
 }
 
-/** Category-wide WHERE (no brand restriction): request filters + tenant category governance. */
+/** Category-wide WHERE (no brand restriction): deleted hygiene + user/governance category & state filters. */
 function baseFilter(t, f) {
   const where = ["COALESCE(deleted, false) = false"];
   const vals = [];
@@ -43,6 +55,7 @@ function baseFilter(t, f) {
   add("parentcat", f.parents, t.allowedParents);
   add("subcat", f.subs, null);
   add("state", f.states, null);
+  add("status", f.statuses, null); // empty = all statuses (unfiltered)
   return { where: where.join(" AND "), vals };
 }
 
@@ -58,7 +71,7 @@ async function withClient(fn) {
     password: process.env.REDSHIFT_PASSWORD,
     ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 8000,
-    statement_timeout: 20000,
+    statement_timeout: 25000,
   });
   c.on("error", (err) => console.error("pg client error:", (err && err.message) || err));
   try { await c.connect(); return await fn(c); }
@@ -67,61 +80,68 @@ async function withClient(fn) {
 
 const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v));
 const yoy = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : 0);
+const pkey = (v) => (v instanceof Date ? v.toISOString() : String(v));
+function fmtPeriod(v, agg) {
+  const d = v instanceof Date ? v : new Date(v);
+  if (isNaN(d)) return String(v);
+  const yy = "'" + String(d.getUTCFullYear()).slice(2);
+  if (agg === "quarterly") return "Q" + (Math.floor(d.getUTCMonth() / 3) + 1) + " " + yy;
+  if (agg === "monthly") return MONTHS[d.getUTCMonth()] + " " + yy;
+  return (d.getUTCMonth() + 1) + "/" + d.getUTCDate();
+}
 
 module.exports = async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "no-store");
+  if (req.method === "OPTIONS") return res.status(204).end();
   try {
     const missing = ["REDSHIFT_HOST", "REDSHIFT_DATABASE", "REDSHIFT_USER", "REDSHIFT_PASSWORD"].filter((k) => !process.env[k]);
     if (missing.length) return res.status(500).json({ error: "Missing environment variables: " + missing.join(", ") });
 
     const tenant = resolveTenant(req);
     const f = reqFilters(req);
-    const key = JSON.stringify({ tenant, f });
+    const agg = AGG[f.agg] ? f.agg : "monthly";
+    const key = JSON.stringify({ tenant, f, agg });
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < TTL_MS) return res.status(200).json(hit.data);
 
     const fb = baseFilter(tenant, f);
 
     const payload = await withClient(async (c) => {
-      // --- category-wide brand aggregates (competitive share) ---
+      // brand aggregates (competitive share)
       const brandRes = await c.query(
         `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, COUNT(DISTINCT model) AS skus
-         FROM ${FACT} WHERE ${fb.where}
-         GROUP BY brand ORDER BY sales DESC`, fb.vals);
-
-      // --- sub-category breakdown ---
+         FROM ${FACT} WHERE ${fb.where} GROUP BY brand ORDER BY sales DESC`, fb.vals);
+      // sub-categories
       const subRes = await c.query(
         `SELECT subcat, SUM(total_sell) AS sales, SUM(quantity) AS units
-         FROM ${FACT} WHERE ${fb.where}
-         GROUP BY subcat ORDER BY sales DESC`, fb.vals);
-
-      // --- top items (brand + model) ---
+         FROM ${FACT} WHERE ${fb.where} GROUP BY subcat ORDER BY sales DESC`, fb.vals);
+      // items
       const itemRes = await c.query(
-        `SELECT brand, model, LEFT(MAX(name), 90) AS name,
-                SUM(total_sell) AS sales, SUM(quantity) AS units
-         FROM ${FACT} WHERE ${fb.where}
-         GROUP BY brand, model ORDER BY sales DESC LIMIT 200`, fb.vals);
-
-      // --- headline KPIs for the viewed brand (+ real YoY by submitted date) ---
+        `SELECT brand, model, LEFT(MAX(name), 90) AS name, SUM(total_sell) AS sales, SUM(quantity) AS units
+         FROM ${FACT} WHERE ${fb.where} GROUP BY brand, model ORDER BY sales DESC LIMIT 200`, fb.vals);
+      // share-over-time: brand sales per period over the trailing window
+      const u = AGG[agg].unit, n = AGG[agg].n;
+      const seriesRes = await c.query(
+        `SELECT brand, DATE_TRUNC('${u}', submitted) AS period, SUM(total_sell) AS sales
+         FROM ${FACT} WHERE ${fb.where} AND submitted >= DATEADD(${u}, -${n}, GETDATE())
+         GROUP BY brand, DATE_TRUNC('${u}', submitted) ORDER BY period`, fb.vals);
+      // KPIs for viewed brand (+ real YoY by submitted date)
       const kvals = fb.vals.slice(); kvals.push(tenant.brand);
       const bp = `$${kvals.length}`;
       const kpiRes = await c.query(
-        `SELECT
-           SUM(total_sell) AS rev_all,
-           SUM(quantity)   AS un_all,
-           COUNT(DISTINCT proposalid) AS prop_all,
-           COUNT(DISTINCT dealerid)   AS deal_all,
-           SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_cur,
-           SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_prev,
-           SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_cur,
-           SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_prev,
-           COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_cur,
-           COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_prev,
-           COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_cur,
-           COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_prev
+        `SELECT SUM(total_sell) AS rev_all, SUM(quantity) AS un_all,
+                COUNT(DISTINCT proposalid) AS prop_all, COUNT(DISTINCT dealerid) AS deal_all,
+                SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_cur,
+                SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_prev,
+                SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_cur,
+                SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_prev,
+                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_cur,
+                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_prev,
+                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_cur,
+                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_prev
          FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}`, kvals);
 
-      // --- shape to the contract ---
       const brandRows = brandRes.rows.map((r) => ({
         brand: r.brand, sales: num(r.sales), units: num(r.units), skus: num(r.skus),
         sharePct: 0, unitSharePct: 0, avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
@@ -136,12 +156,31 @@ module.exports = async (req, res) => {
         sharePct: (num(r.sales) / totalSales) * 100, unitSharePct: (num(r.units) / totalUnits) * 100,
         avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
       }));
-
       const subcatRows = subRes.rows.map((r) => ({
         subcat: r.subcat, sales: num(r.sales), units: num(r.units),
         pctOfCat: (num(r.sales) / totalSales) * 100, unitPctOfCat: (num(r.units) / totalUnits) * 100,
         avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,
       }));
+
+      // pivot share-over-time into { labels, series{brand:[pct...]} }
+      const periodsMap = new Map(); // key -> {date, total}
+      const cell = new Map();       // brand|key -> sales
+      for (const r of seriesRes.rows) {
+        const k = pkey(r.period);
+        if (!periodsMap.has(k)) periodsMap.set(k, { date: r.period, total: 0 });
+        periodsMap.get(k).total += num(r.sales);
+        cell.set(r.brand + "|" + k, num(r.sales));
+      }
+      const periodKeys = [...periodsMap.keys()].sort();
+      const labels = periodKeys.map((k) => fmtPeriod(periodsMap.get(k).date, agg));
+      const series = {};
+      for (const b of brandRows) {
+        series[b.brand] = periodKeys.map((k) => {
+          const tot = periodsMap.get(k).total || 1;
+          const s = cell.get(b.brand + "|" + k) || 0;
+          return Math.round((s / tot) * 10000) / 100;
+        });
+      }
 
       const k = kpiRes.rows[0] || {};
       const kpis = {
@@ -154,9 +193,9 @@ module.exports = async (req, res) => {
 
       return {
         brandRows, itemRows, subcatRows,
-        share: { labels: [], rows: brandRows, series: {} }, // TODO: real monthly share series
+        share: { labels, rows: brandRows, series },
         kpis,
-        submitted: [], accepted: [], won: [], lost: [],     // TODO: proposal funnel + displacement
+        submitted: [], accepted: [], won: [], lost: [], // TODO: needs Portal metric definitions
       };
     });
 

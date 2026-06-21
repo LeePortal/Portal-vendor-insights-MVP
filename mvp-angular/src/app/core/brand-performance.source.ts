@@ -22,7 +22,7 @@ export class BrandPerformanceSource {
     if (DATA_MODE === "api") {
       const params: Record<string, string> = {
         brand: f.brand, agg: f.agg, horizon: f.horizon, normalize: String(f.normalize),
-        parents: f.parents.join(","), subs: f.subs.join(","), buyingGroups: f.buyingGroups.join(","), states: f.states.join(","),
+        parents: f.parents.join(","), subs: f.subs.join(","), buyingGroups: f.buyingGroups.join(","), states: f.states.join(","), statuses: (f.statuses || []).join(","),
       };
       return firstValueFrom(this.http.get<BrandPerfPayload>(API_BASE_URL + "/api/brand-performance", { params }));
     }
