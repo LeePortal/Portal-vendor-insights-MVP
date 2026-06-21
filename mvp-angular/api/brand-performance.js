@@ -122,11 +122,11 @@ module.exports = async (req, res) => {
     // KPI window expressions: headline = the Date Range window (all-time for "All");
     // YoY compares that window to the same window one year earlier.
     const headSum = (m) => curStart ? `SUM(CASE WHEN submitted >= ${curStart} THEN ${m} ELSE 0 END)` : `SUM(${m})`;
-    const headCnt = (c) => curStart ? `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `APPROXIMATE COUNT(DISTINCT ${c})`;
+    const headCnt = (c) => curStart ? `COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `COUNT(DISTINCT ${c})`;
     const curSum = (m) => curStart ? `SUM(CASE WHEN submitted >= ${curStart} THEN ${m} ELSE 0 END)` : `SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)`;
     const prevSum = (m) => curStart ? `SUM(CASE WHEN submitted >= DATEADD(year,-1,${curStart}) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)` : `SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)`;
-    const curCnt = (c) => curStart ? `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
-    const prevCnt = (c) => curStart ? `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,${curStart}) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)` : `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
+    const curCnt = (c) => curStart ? `COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
+    const prevCnt = (c) => curStart ? `COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,${curStart}) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)` : `COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
     const p = pool();
 
     // run all five aggregates concurrently (separate pooled connections)
