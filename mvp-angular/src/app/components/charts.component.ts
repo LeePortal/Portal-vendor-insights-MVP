@@ -1,4 +1,4 @@
-import { Component, Input } from "@angular/core";
+import { Component, Input, ViewChild, ElementRef, AfterViewInit, HostListener } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { fmtCurrency, fmtNumber } from "../core/format";
 
@@ -23,7 +23,7 @@ function fmtVal(v: number, mode: VFmt): string {
       <div style="flex:1;min-width:0">
         <div style="display:flex">
           <div class="chart-yticks" [style.height.px]="ph"><span>{{ fv(max) }}</span><span>{{ fv(max/2) }}</span><span>0</span></div>
-          <div class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
+          <div #plot class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g *ngIf="gridlines"><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
               <polygon [attr.points]="areaPoints" fill="rgba(255,80,0,0.12)"></polygon>
@@ -75,7 +75,7 @@ export class TrendChartComponent {
       <div style="flex:1;min-width:0">
         <div style="display:flex">
           <div class="chart-yticks" [style.height.px]="ph"><span>{{ max | number:'1.0-0' }}</span><span>{{ max/2 | number:'1.0-0' }}</span><span>0</span></div>
-          <div class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
+          <div #plot class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
               <line x1="0" [attr.y1]="baselineY" [attr.x2]="W" [attr.y2]="baselineY" stroke="#aeb0b5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
@@ -146,11 +146,11 @@ interface DPoint { label: string; category: number; brand: number; }
       <div style="flex:1;min-width:0">
         <div style="display:flex">
           <div class="chart-yticks" [style.height.px]="ph"><span>{{ fv(catMax) }}</span><span>{{ fv(catMax/2) }}</span><span>0</span></div>
-          <div class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
+          <div #plot class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
               <polyline [attr.points]="line('category')" fill="none" stroke="#27272a" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
-              <polyline *ngIf="showBrand" [attr.points]="line('brand')" fill="none" stroke="#ff5000" stroke-width="2.5" vector-effect="non-scaling-stroke"></polyline>
+              <polyline *ngIf="showBrand" [attr.points]="line('brand')" fill="none" stroke="#ff5000" stroke-width="2.5" stroke-dasharray="7 4" vector-effect="non-scaling-stroke"></polyline>
               <g><circle *ngFor="let p of pts('category')" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="points.length <= 3 ? 5 : 3" fill="#27272a"></circle></g>
               <g *ngIf="showBrand"><circle *ngFor="let p of pts('brand')" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="points.length <= 3 ? 5 : 3" fill="#ff5000"></circle></g>
             </svg>
@@ -173,7 +173,7 @@ interface DPoint { label: string; category: number; brand: number; }
     </div>
   `,
 })
-export class DualLineChartComponent {
+export class DualLineChartComponent implements AfterViewInit {
   @Input() points: DPoint[] = [];
   @Input() showBrand = true;
   @Input() brandLabel = "Your brand";
@@ -181,6 +181,9 @@ export class DualLineChartComponent {
   @Input() xLabel = "Period";
   @Input() valueFormat: VFmt = "money";
   W = 640; H = 210; pad = 12; ph = 215; hi = -1;
+  @ViewChild("plot") plot?: ElementRef<HTMLElement>;
+  ngAfterViewInit(): void { setTimeout(() => this.measure()); }
+  @HostListener("window:resize") measure(): void { const el = this.plot?.nativeElement; if (el) { this.W = Math.max(50, el.clientWidth); this.H = Math.max(50, el.clientHeight); } }
   fv(v: number): string { return fmtVal(v, this.valueFormat); }
   get catMax(): number { return Math.max(1, ...this.points.map((p) => p.category)); }
   get brandMax(): number { return Math.max(1, ...this.points.map((p) => p.brand)); }
@@ -206,7 +209,7 @@ export interface MultiSeries { label: string; values: number[]; color: string; }
       <div style="flex:1;min-width:0">
         <div style="display:flex">
           <div class="chart-yticks" [style.height.px]="ph"><span>{{ fv(max) }}</span><span>{{ fv(max/2) }}</span><span>0</span></div>
-          <div class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
+          <div #plot class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
               <polyline *ngFor="let s of series" [attr.points]="line(s)" fill="none" [attr.stroke]="s.color" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
@@ -225,13 +228,16 @@ export interface MultiSeries { label: string; values: number[]; color: string; }
     </div>
   `,
 })
-export class MultiLineChartComponent {
+export class MultiLineChartComponent implements AfterViewInit {
   @Input() series: MultiSeries[] = [];
   @Input() axis: string[] = [];
   @Input() yLabel = "Share of category (%)";
   @Input() xLabel = "Period";
   @Input() valueFormat: VFmt = "pct";
   W = 640; H = 240; pad = 16; ph = 250; hi = -1;
+  @ViewChild("plot") plot?: ElementRef<HTMLElement>;
+  ngAfterViewInit(): void { setTimeout(() => this.measure()); }
+  @HostListener("window:resize") measure(): void { const el = this.plot?.nativeElement; if (el) { this.W = Math.max(50, el.clientWidth); this.H = Math.max(50, el.clientHeight); } }
   fv(v: number): string { return fmtVal(v == null ? 0 : v, this.valueFormat); }
   get max(): number { return Math.max(1, ...this.series.flatMap((s) => s.values)); }
   line(s: MultiSeries): string { const n = s.values.length; return s.values.map((v, i) => (n <= 1 ? this.W / 2 : (i / (n - 1)) * this.W).toFixed(1) + "," + (this.H - (v / this.max) * (this.H - this.pad)).toFixed(1)).join(" "); }
