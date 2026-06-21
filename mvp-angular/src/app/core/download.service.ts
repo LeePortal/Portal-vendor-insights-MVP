@@ -39,7 +39,14 @@ export class DownloadService {
       a.click();
       URL.revokeObjectURL(url);
     } else if (p.kind === "pdf") {
-      window.print();
+      if (p.build) {
+        const html = p.build();
+        const w = window.open("", "_blank");
+        if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+        else { const blob = new Blob([html], { type: "text/html;charset=utf-8" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = p.filename; a.click(); URL.revokeObjectURL(url); }
+      } else {
+        window.print();
+      }
     }
     this.log.unshift({ ts: Date.now(), user: s ? s.email : "unknown", ip: "(captured server-side)", filename: p.filename, kind: p.kind });
     this.persist();

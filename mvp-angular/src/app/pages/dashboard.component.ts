@@ -389,8 +389,50 @@ export class DashboardComponent implements OnInit {
     this.dl.request({ kind: "csv", filename: fname, build: () => lines.join("\n") });
   }
   pull(): void {
-    const fname = "Portal.io Market Insights - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + " " + this.session.name + ".pdf";
-    this.dl.request({ kind: "pdf", filename: fname });
+    const fname = "Portal.io Market Insights Report - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".html";
+    this.dl.request({ kind: "pdf", filename: fname, build: () => this.buildReport() });
+  }
+  private esc(s: string): string { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  private buildReport(): string {
+    const company = this.viewAs === "admin" ? "All companies" : this.viewAs;
+    const scope = [this.horizon, this.parents.length ? this.parents.join(", ") : "All categories", this.states.length ? this.states.join(", ") : "All states"].join(" · ");
+    const statuses = this.dataMode === "api" ? (this.statuses.join(", ") || "All statuses") : "Sample data";
+    const card = (label: string, val: string, y: number) => `<div class="card"><div class="cl">${label}</div><div class="cv">${val}</div><div class="cy" style="color:${y >= 0 ? "#1d9e75" : "#d85a30"}">${y >= 0 ? "▲" : "▼"} ${Math.abs(y)}% YoY</div></div>`;
+    const brandHtml = this.brandRows.slice(0, 10).map((r, i) => `<tr${r.brand === this.viewAs ? ' class="me"' : ""}><td>${i + 1}</td><td>${this.esc(r.brand)}</td><td class="n">${this.cur(r.sales)}</td><td class="n">${this.pct(r.sharePct / 100)}</td><td class="n">${this.num(r.units)}</td><td class="n">${this.num(r.skus)}</td></tr>`).join("");
+    const itemHtml = this.itemRows.slice(0, 8).map((r) => `<tr${r.brand === this.viewAs ? ' class="me"' : ""}><td>${this.esc(r.brand)}</td><td>${this.esc(r.model)}</td><td class="n">${this.cur(r.sales)}</td><td class="n">${this.pct(r.sharePct / 100)}</td></tr>`).join("");
+    const wonHtml = this.won.slice(0, 5).map((d) => `<li>${this.esc(d.model)} — ${this.num(d.units)} units, ${this.cur(d.sales)} (beat ${d.competitorsBeaten})</li>`).join("") || '<li class="muted">None in the selected range</li>';
+    const lostHtml = this.lost.slice(0, 5).map((d) => `<li>${this.esc(d.model)} — ${this.num(d.lostUnits)} units lost</li>`).join("") || '<li class="muted">None in the selected range</li>';
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Portal Market Insights — ${this.esc(company)}</title>
+<style>
+*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#333;margin:0 auto;padding:32px;max-width:980px}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start}.wm{font-size:22px;font-weight:700;color:#ff5000;letter-spacing:.5px}
+.tag{font-size:10px;color:#8a8a8a;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px}
+.hr-r{text-align:right;font-size:11px;color:#8a8a8a;text-transform:uppercase;letter-spacing:1px}
+.rule{height:4px;background:#ff5000;margin:12px 0 18px;border-radius:2px}
+h1{font-size:24px;margin:0}.sub{color:#8a8a8a;font-size:13px;margin:2px 0}.scope{color:#8a8a8a;font-size:12px;margin-bottom:18px}
+.cards{display:flex;gap:12px;margin-bottom:8px}.card{flex:1;border:1px solid #e5e5e5;border-radius:8px;padding:12px}
+.cl{font-size:11px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px}.cv{font-size:22px;font-weight:700;margin:3px 0}.cy{font-size:11px}
+h2{font-size:14px;border-top:1px solid #eee;padding-top:14px;margin:18px 0 8px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #f0f0f0}th{color:#8a8a8a;font-weight:600}td.n,th.n{text-align:right}
+tr.me{background:#fff1ea;font-weight:700}
+.two{display:flex;gap:24px}.two>div{flex:1}ul{margin:6px 0;padding-left:18px;font-size:12px}li{margin:3px 0}.muted{color:#aaa;list-style:none;margin-left:-18px}
+.note{font-size:11px;color:#8a8a8a;border-top:1px solid #eee;margin-top:18px;padding-top:10px}.ft{font-size:10px;color:#aaa;margin-top:14px;text-align:right}
+@media print{body{padding:0}}
+</style></head><body>
+<div class="hdr"><div><div class="wm">Portal</div><div class="tag">Where brands and integrators connect</div></div><div class="hr-r">Market Insights<br>Brand Performance Report</div></div>
+<div class="rule"></div>
+<h1>${this.esc(company)}</h1><div class="sub">Market performance overview</div>
+<div class="scope">${this.esc(scope)} · Statuses: ${this.esc(statuses)}</div>
+<div class="cards">${card("Brand revenue", this.money(this.kpis.revenue), this.kpis.revenueYoY)}${card("Units sold", this.num(this.kpis.units), this.kpis.unitsYoY)}${card("Proposals", this.num(this.kpis.proposals), this.kpis.proposalsYoY)}${card("Active dealers", this.num(this.kpis.dealers), this.kpis.dealersYoY)}</div>
+<h2>Category share by brand</h2>
+<table><thead><tr><th>#</th><th>Brand</th><th class="n">Total sales</th><th class="n">$ share</th><th class="n">Units</th><th class="n"># SKUs</th></tr></thead><tbody>${brandHtml}</tbody></table>
+<h2>Top items</h2>
+<table><thead><tr><th>Brand</th><th>Model</th><th class="n">Total sales</th><th class="n">$ share</th></tr></thead><tbody>${itemHtml}</tbody></table>
+<h2>Competitive displacement</h2>
+<div class="two"><div><div style="font-size:12px;font-weight:700;color:#1d9e75">Business won — competitors displaced</div><ul>${wonHtml}</ul></div><div><div style="font-size:12px;font-weight:700;color:#d85a30">Business lost — you were displaced</div><ul>${lostHtml}</ul></div></div>
+<div class="note">Source: Portal Market Insights (${this.dataMode === "api" ? "live Redshift data, refreshed nightly" : "sample data"}). Figures reflect the filters shown above. Sales and share are catalog product totals; counts are exact. Aggregate market data only — no individual dealer is identified.</div>
+<div class="ft">Generated ${new Date().toISOString().slice(0, 10)} · ${this.esc(company)} · ${this.esc(this.session.name)} · Portal.io</div>
+</body></html>`;
   }
 
   money(n: number): string { if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B"; if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return "$" + Math.round(n / 1e3) + "k"; return "$" + Math.round(n); }
