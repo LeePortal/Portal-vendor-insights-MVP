@@ -31,6 +31,12 @@ const AGG = {
   quarterly: { unit: "quarter", n: 8 },
 };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// Date Range lower bounds. Aggregation sets bucket granularity; Date Range sets the window. "All" = no bound.
+const HORIZON_START = {
+  MTD: "DATE_TRUNC('month', GETDATE())",
+  QTD: "DATE_TRUNC('quarter', GETDATE())",
+  YTD: "DATE_TRUNC('year', GETDATE())",
+};
 
 // Reused across warm invocations so we don't reconnect to Redshift every request.
 let _pool = null;
@@ -59,7 +65,7 @@ function resolveTenant(_req) { return { brand: "Sonos", allowedParents: [] }; }
 function reqFilters(req) {
   const q = req.query || {};
   const arr = (v) => (v ? String(v).split(",").filter(Boolean) : []);
-  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), agg: String(q.agg || "monthly") };
+  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), agg: String(q.agg || "monthly"), horizon: String(q.horizon || "YTD") };
 }
 
 /** Category-wide WHERE: deleted hygiene + user/governance category, state, status filters. */
@@ -105,37 +111,46 @@ module.exports = async (req, res) => {
     if (hit && Date.now() - hit.at < TTL_MS) return res.status(200).json(hit.data);
 
     const fb = baseFilter(tenant, f);
-    const u = AGG[agg].unit, n = AGG[agg].n;
+    const u = AGG[agg].unit;
+    const hz = ["MTD", "QTD", "YTD", "All"].includes(f.horizon) ? f.horizon : "YTD";
+    const curStart = HORIZON_START[hz] || null; // null === "All" (no date lower bound)
+    const whereH = curStart ? `${fb.where} AND submitted >= ${curStart}` : fb.where;
+    const seriesWhere = `${fb.where} AND submitted IS NOT NULL` + (curStart ? ` AND submitted >= ${curStart}` : "");
     const kvals = fb.vals.slice(); kvals.push(tenant.brand);
     const bp = `$${kvals.length}`;
+
+    // KPI window expressions: headline = the Date Range window (all-time for "All");
+    // YoY compares that window to the same window one year earlier.
+    const headSum = (m) => curStart ? `SUM(CASE WHEN submitted >= ${curStart} THEN ${m} ELSE 0 END)` : `SUM(${m})`;
+    const headCnt = (c) => curStart ? `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `APPROXIMATE COUNT(DISTINCT ${c})`;
+    const curSum = (m) => curStart ? `SUM(CASE WHEN submitted >= ${curStart} THEN ${m} ELSE 0 END)` : `SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)`;
+    const prevSum = (m) => curStart ? `SUM(CASE WHEN submitted >= DATEADD(year,-1,${curStart}) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)` : `SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)`;
+    const curCnt = (c) => curStart ? `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
+    const prevCnt = (c) => curStart ? `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,${curStart}) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)` : `APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
     const p = pool();
 
     // run all five aggregates concurrently (separate pooled connections)
     const [brandRes, subRes, itemRes, seriesRes, kpiRes] = await Promise.all([
       p.query(
         `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, APPROXIMATE COUNT(DISTINCT model) AS skus
-         FROM ${FACT} WHERE ${fb.where} GROUP BY brand ORDER BY sales DESC`, fb.vals),
+         FROM ${FACT} WHERE ${whereH} GROUP BY brand ORDER BY sales DESC`, fb.vals),
       p.query(
         `SELECT subcat, SUM(total_sell) AS sales, SUM(quantity) AS units
-         FROM ${FACT} WHERE ${fb.where} GROUP BY subcat ORDER BY sales DESC`, fb.vals),
+         FROM ${FACT} WHERE ${whereH} GROUP BY subcat ORDER BY sales DESC`, fb.vals),
       p.query(
         `SELECT brand, model, LEFT(MAX(name), 90) AS name, SUM(total_sell) AS sales, SUM(quantity) AS units
-         FROM ${FACT} WHERE ${fb.where} GROUP BY brand, model ORDER BY sales DESC LIMIT 200`, fb.vals),
+         FROM ${FACT} WHERE ${whereH} GROUP BY brand, model ORDER BY sales DESC LIMIT 200`, fb.vals),
       p.query(
         `SELECT brand, DATE_TRUNC('${u}', submitted) AS period, SUM(total_sell) AS sales
-         FROM ${FACT} WHERE ${fb.where} AND submitted >= DATEADD(${u}, -${n}, GETDATE())
+         FROM ${FACT} WHERE ${seriesWhere}
          GROUP BY brand, DATE_TRUNC('${u}', submitted) ORDER BY period`, fb.vals),
       p.query(
-        `SELECT SUM(total_sell) AS rev_all, SUM(quantity) AS un_all,
-                APPROXIMATE COUNT(DISTINCT proposalid) AS prop_all, APPROXIMATE COUNT(DISTINCT dealerid) AS deal_all,
-                SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_cur,
-                SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_prev,
-                SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_cur,
-                SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_prev,
-                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_cur,
-                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_prev,
-                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_cur,
-                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_prev
+        `SELECT ${headSum("total_sell")} AS rev_all, ${headSum("quantity")} AS un_all,
+                ${headCnt("proposalid")} AS prop_all, ${headCnt("dealerid")} AS deal_all,
+                ${curSum("total_sell")} AS rev_cur, ${prevSum("total_sell")} AS rev_prev,
+                ${curSum("quantity")} AS un_cur, ${prevSum("quantity")} AS un_prev,
+                ${curCnt("proposalid")} AS prop_cur, ${prevCnt("proposalid")} AS prop_prev,
+                ${curCnt("dealerid")} AS deal_cur, ${prevCnt("dealerid")} AS deal_prev
          FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}`, kvals),
     ]);
 
@@ -170,7 +185,7 @@ module.exports = async (req, res) => {
     const periodKeys = [...periodsMap.keys()].sort();
     const labels = periodKeys.map((k) => fmtPeriod(periodsMap.get(k).date, agg));
     const series = {};
-    for (const b of brandRows) {
+    for (const b of brandRows.slice(0, 40)) {
       series[b.brand] = periodKeys.map((k) => {
         const tot = periodsMap.get(k).total || 1;
         return Math.round(((cell.get(b.brand + "|" + k) || 0) / tot) * 10000) / 100;

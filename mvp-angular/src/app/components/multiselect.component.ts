@@ -38,11 +38,12 @@ export class MultiSelectComponent {
   @Input() selected: string[] = [];
   @Input() allLabel = "All";
   @Input() search = true;
+  @Input() sort = true; // when false, preserve the caller's option order (e.g. pipeline-ordered statuses)
   @Output() selectedChange = new EventEmitter<string[]>();
   open = false;
   q = "";
 
-  get filtered(): string[] { const t = this.q.toLowerCase().trim(); const base = t ? this.options.filter((o) => o.toLowerCase().includes(t)) : this.options; return [...base].sort((a, b) => a.localeCompare(b)); }
+  get filtered(): string[] { const t = this.q.toLowerCase().trim(); const base = t ? this.options.filter((o) => o.toLowerCase().includes(t)) : this.options; return this.sort ? [...base].sort((a, b) => a.localeCompare(b)) : [...base]; }
   get summary(): string {
     if (!this.selected.length) return this.allLabel;
     if (this.selected.length <= 2) return this.selected.join(", ");

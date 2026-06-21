@@ -52,7 +52,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <app-multiselect label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="subs = $event; rebuild()"></app-multiselect>
       <app-multiselect *ngIf="dataMode === 'synthetic'" label="Buying group" allLabel="All buying groups" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
       <app-multiselect label="State" allLabel="All states" [options]="stateOptions" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
-      <app-multiselect *ngIf="dataMode === 'api'" label="Proposal status" allLabel="All statuses" [search]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
+      <app-multiselect *ngIf="dataMode === 'api'" label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
       <div class="filt" *ngIf="dataMode === 'synthetic'"><label>Normalization <span class="info-i" title="Filters out brand-new accounts so you see true year-over-year performance.">&#9432;</span></label>
         <label class="switch"><input type="checkbox" [checked]="normalize" (change)="normalize = !normalize; rebuild()" /><span class="track"></span></label>
       </div>
@@ -62,6 +62,19 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 
     <div *ngIf="loadError" class="pcard" style="border-color:var(--negative);color:var(--negative);margin-bottom:16px;padding:12px 16px">{{ loadError }}</div>
     <p *ngIf="dataMode === 'api'" class="muted" style="font-size:12px;margin:-4px 0 14px">Live Redshift data (refreshed nightly). Proposal funnel &amp; competitive displacement are hidden in live mode until their metrics are defined with the data team.</p>
+
+    <div class="dash-wrap">
+    <div *ngIf="loading && firstLoad">
+      <div class="grid c4" style="margin-bottom:16px">
+        <div class="pcard" *ngFor="let s of [1,2,3,4]"><div class="sk" style="height:12px;width:55%;margin-bottom:14px"></div><div class="sk" style="height:24px;width:75%"></div></div>
+      </div>
+      <div class="pcard" style="margin-bottom:16px"><div class="sk" style="height:14px;width:35%;margin-bottom:18px"></div><div class="sk" style="height:240px"></div></div>
+      <div class="pcard"><div class="sk" style="height:14px;margin-bottom:14px" *ngFor="let s of [1,2,3,4,5,6]"></div></div>
+    </div>
+    <ng-container *ngIf="!(loading && firstLoad)">
+      <div *ngIf="loading" class="upd-pill"><span class="upd-dot"></span> Updating…</div>
+      <div *ngIf="loading" class="upd-overlay"><div class="upd-spinner"></div></div>
+      <div class="dash-body" [class.updating]="loading">
 
     <div class="grid c4" style="margin-bottom:16px">
       <div class="pcard kpi"><div class="label">Brand Revenue</div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
@@ -193,7 +206,21 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
         </div>
       </div>
     </div>
+      </div>
+    </ng-container>
+    </div>
   `,
+  styles: [`
+    @keyframes dashspin { to { transform: rotate(360deg); } }
+    @keyframes dashpulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+    .dash-wrap { position: relative; }
+    .dash-body.updating { opacity: .4; pointer-events: none; transition: opacity .2s; }
+    .upd-overlay { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding-top: 90px; z-index: 5; }
+    .upd-spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: #ff5000; border-radius: 50%; animation: dashspin .8s linear infinite; }
+    .upd-pill { position: absolute; top: 0; left: 50%; transform: translateX(-50%); background: var(--accent-soft); color: #ff5000; font-size: 12px; font-weight: 600; padding: 5px 14px; border-radius: 999px; z-index: 6; display: inline-flex; gap: 7px; align-items: center; }
+    .upd-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff5000; animation: dashpulse 1s ease-in-out infinite; }
+    .sk { background: var(--border); border-radius: 6px; animation: dashpulse 1.1s ease-in-out infinite; display: block; }
+  `],
 })
 export class DashboardComponent implements OnInit {
   private route = inject(ActivatedRoute);
@@ -223,7 +250,8 @@ export class DashboardComponent implements OnInit {
   subs: string[] = [];
   buyingGroups: string[] = [];
   states: string[] = [];
-  statuses: string[] = [];
+  readonly defaultStatuses = ["Accepted", "Completed", "Submitted"];
+  statuses: string[] = [...this.defaultStatuses];
   subscribed = false;
 
   brandRows: BrandShareRow[] = [];
@@ -243,6 +271,8 @@ export class DashboardComponent implements OnInit {
   dataMode = DATA_MODE;
   lastShareSeries: ShareSeries = { labels: [], rows: [], series: {} };
   loadError = "";
+  loading = false;
+  firstLoad = true;
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get("id") || "overview";
@@ -265,6 +295,7 @@ export class DashboardComponent implements OnInit {
   }
   async rebuild(resetComp = false): Promise<void> {
     const f = this.filter();
+    this.loading = true;
     try {
       const p = await this.src.get(f);
       this.brandRows = p.brandRows;
@@ -291,6 +322,9 @@ export class DashboardComponent implements OnInit {
       this.loadError = "";
     } catch (e: any) {
       this.loadError = "Couldn't load live data: " + ((e && e.message) || e);
+    } finally {
+      this.loading = false;
+      this.firstLoad = false;
     }
   }
   private defaultComp(): string[] {
@@ -330,7 +364,7 @@ export class DashboardComponent implements OnInit {
 
   onParents(v: string[]): void { this.parents = v; this.subs = this.subs.filter((s) => this.subOptions.includes(s)); this.rebuild(); }
   setView(v: string): void { this.viewAs = v; this.parents = []; this.subs = []; this.rebuild(true); }
-  reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.statuses = []; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.rebuild(true); }
+  reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.rebuild(true); }
   toggleSub(): void { this.subscribed = !this.subscribed; }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }
