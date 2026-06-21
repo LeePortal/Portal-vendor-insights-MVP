@@ -46,7 +46,7 @@ function pool() {
     ssl: { rejectUnauthorized: false },
     max: 8,
     connectionTimeoutMillis: 8000,
-    statement_timeout: 9000,
+    statement_timeout: 50000,
     idleTimeoutMillis: 30000,
   });
   _pool.on("error", (err) => console.error("pg pool error:", (err && err.message) || err));
@@ -113,7 +113,7 @@ module.exports = async (req, res) => {
     // run all five aggregates concurrently (separate pooled connections)
     const [brandRes, subRes, itemRes, seriesRes, kpiRes] = await Promise.all([
       p.query(
-        `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, COUNT(DISTINCT model) AS skus
+        `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, APPROXIMATE COUNT(DISTINCT model) AS skus
          FROM ${FACT} WHERE ${fb.where} GROUP BY brand ORDER BY sales DESC`, fb.vals),
       p.query(
         `SELECT subcat, SUM(total_sell) AS sales, SUM(quantity) AS units
@@ -127,15 +127,15 @@ module.exports = async (req, res) => {
          GROUP BY brand, DATE_TRUNC('${u}', submitted) ORDER BY period`, fb.vals),
       p.query(
         `SELECT SUM(total_sell) AS rev_all, SUM(quantity) AS un_all,
-                COUNT(DISTINCT proposalid) AS prop_all, COUNT(DISTINCT dealerid) AS deal_all,
+                APPROXIMATE COUNT(DISTINCT proposalid) AS prop_all, APPROXIMATE COUNT(DISTINCT dealerid) AS deal_all,
                 SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_cur,
                 SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN total_sell ELSE 0 END) AS rev_prev,
                 SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_cur,
                 SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN quantity ELSE 0 END) AS un_prev,
-                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_cur,
-                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_prev,
-                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_cur,
-                COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_prev
+                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_cur,
+                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN proposalid END) AS prop_prev,
+                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_cur,
+                APPROXIMATE COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN dealerid END) AS deal_prev
          FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}`, kvals),
     ]);
 
