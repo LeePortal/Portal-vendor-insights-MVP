@@ -26,7 +26,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
         <span class="badge-sample">{{ dataMode === 'api' ? 'LIVE DATA' : 'SAMPLE DATA' }}</span>
         <button class="pbtn" [class.primary]="subscribed" (click)="toggleSub()">{{ subscribed ? "Subscribed" : "Subscribe" }}</button>
         <button class="pbtn" [disabled]="csvBusy" (click)="exportCsv()">{{ csvBusy ? "Preparing…" : "⬇ Export CSV" }}</button>
-        <button class="pbtn" (click)="pull()">Pull report</button>
+        <button class="pbtn" [disabled]="pdfBusy" (click)="pull()">{{ pdfBusy ? "Preparing…" : "Pull report" }}</button>
         <button *ngIf="isAdmin" class="pbtn dark" (click)="publish()">Publish to company…</button>
       </div>
     </div>
@@ -274,6 +274,7 @@ export class DashboardComponent implements OnInit {
   loadError = "";
   notice = "";
   csvBusy = false;
+  pdfBusy = false;
   loading = false;
   firstLoad = true;
 
@@ -405,115 +406,205 @@ export class DashboardComponent implements OnInit {
     for (const it of this.itemRows) lines.push([it.brand, it.model, it.desc, Math.round(it.sales), it.sharePct.toFixed(2), Math.round(it.units), it.unitSharePct.toFixed(2), it.avgSell.toFixed(2)].map(esc).join(","));
     this.dl.request({ kind: "csv", filename: fname, build: () => String.fromCharCode(0xfeff) + lines.join("\r\n") + "\r\n" });
   }
-  pull(): void {
-    const fname = "Portal.io Market Insights Report - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".html";
-    this.dl.request({ kind: "pdf", filename: fname, build: () => this.buildReport() });
-  }
-  private esc(s: string): string { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-  private buildReport(): string {
-    const company = this.viewAs === "admin" ? "All companies" : this.viewAs;
-    const scope = [this.horizon, this.parents.length ? this.parents.join(", ") : "All categories", this.states.length ? this.states.join(", ") : "All states"].join(" · ");
-    const statuses = this.dataMode === "api" ? (this.statuses.join(", ") || "All statuses") : "Sample data";
-    const card = (label: string, val: string, y: number) => `<div class="card"><div class="cl">${label}</div><div class="cv">${val}</div><div class="cy" style="color:${y >= 0 ? "#1d9e75" : "#d85a30"}">${y >= 0 ? "▲" : "▼"} ${Math.abs(y)}% YoY</div></div>`;
-    const brandHtml = this.brandRows.slice(0, 10).map((r, i) => `<tr${r.brand === this.viewAs ? ' class="me"' : ""}><td>${i + 1}</td><td>${this.esc(r.brand)}</td><td class="n">${this.cur(r.sales)}</td><td class="n">${this.pct(r.sharePct / 100)}</td><td class="n">${this.num(r.units)}</td><td class="n">${this.num(r.skus)}</td></tr>`).join("");
-    const itemHtml = this.itemRows.slice(0, 8).map((r) => `<tr${r.brand === this.viewAs ? ' class="me"' : ""}><td>${this.esc(r.brand)}</td><td>${this.esc(r.model)}</td><td class="n">${this.cur(r.sales)}</td><td class="n">${this.pct(r.sharePct / 100)}</td></tr>`).join("");
-    const wonHtml = this.won.slice(0, 5).map((d) => `<li>${this.esc(d.model)} — ${this.num(d.units)} units, ${this.cur(d.sales)} (beat ${d.competitorsBeaten})</li>`).join("") || '<li class="muted">None in the selected range</li>';
-    const lostHtml = this.lost.slice(0, 5).map((d) => `<li>${this.esc(d.model)} — ${this.num(d.lostUnits)} units lost</li>`).join("") || '<li class="muted">None in the selected range</li>';
-    const brandLabel = this.viewAs === "admin" ? "Viewed brand" : this.viewAs;
-    const idxChart = this.svgMulti(this.compSeries, this.compAxis, "Share of category (%)");
-    const subV = this.submitted[0], accV = this.accepted[0];
-    const subChart = subV ? this.svgDual(subV.points, brandLabel, subV.vfmt, subV.ylabel, subV.hasBrand) : "";
-    const accChart = accV ? this.svgDual(accV.points, brandLabel, accV.vfmt, accV.ylabel, accV.hasBrand) : "";
-    const idxSection = idxChart ? `<h2>Competitive index — share of category</h2>${idxChart}` : "";
-    const trendSection = (subChart || accChart)
-      ? `<h2>Proposal trends</h2>${subChart ? `<div class="ct">Category value on submitted proposals</div>${subChart}` : ""}${accChart ? `<div class="ct">Accepted &amp; completed proposals</div>${accChart}` : ""}`
-      : "";
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Portal Market Insights — ${this.esc(company)}</title>
-<style>
-*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#333;margin:0 auto;padding:32px;max-width:980px}
-.hdr{display:flex;justify-content:space-between;align-items:flex-start}.wm{font-size:22px;font-weight:700;color:#ff5000;letter-spacing:.5px}
-.tag{font-size:10px;color:#8a8a8a;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px}
-.hr-r{text-align:right;font-size:11px;color:#8a8a8a;text-transform:uppercase;letter-spacing:1px}
-.rule{height:4px;background:#ff5000;margin:12px 0 18px;border-radius:2px}
-h1{font-size:24px;margin:0}.sub{color:#8a8a8a;font-size:13px;margin:2px 0}.scope{color:#8a8a8a;font-size:12px;margin-bottom:18px}
-.cards{display:flex;gap:12px;margin-bottom:8px}.card{flex:1;border:1px solid #e5e5e5;border-radius:8px;padding:12px}
-.cl{font-size:11px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px}.cv{font-size:22px;font-weight:700;margin:3px 0}.cy{font-size:11px}
-h2{font-size:14px;border-top:1px solid #eee;padding-top:14px;margin:18px 0 8px}
-table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #f0f0f0}th{color:#8a8a8a;font-weight:600}td.n,th.n{text-align:right}
-tr.me{background:#fff1ea;font-weight:700}
-.two{display:flex;gap:24px}.two>div{flex:1}ul{margin:6px 0;padding-left:18px;font-size:12px}li{margin:3px 0}.muted{color:#aaa;list-style:none;margin-left:-18px}
-.ft{font-size:10px;color:#aaa;margin-top:14px;text-align:right}
-.chartbox{border:1px solid #eee;border-radius:8px;padding:10px 12px;margin:6px 0 14px;break-inside:avoid}
-.cyt{font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
-.legend{font-size:11px;color:#555;margin-top:6px}.ct{font-size:12px;font-weight:700;color:#333;margin:10px 0 2px}
-@media print{body{padding:0}}
-</style></head><body>
-<div class="hdr"><div><div class="wm">Portal</div><div class="tag">Where brands and integrators connect</div></div><div class="hr-r">Market Insights<br>Brand Performance Report</div></div>
-<div class="rule"></div>
-<h1>${this.esc(company)}</h1><div class="sub">Market performance overview</div>
-<div class="scope">${this.esc(scope)} · Statuses: ${this.esc(statuses)}</div>
-<div class="cards">${card("Brand revenue", this.money(this.kpis.revenue), this.kpis.revenueYoY)}${card("Units sold", this.num(this.kpis.units), this.kpis.unitsYoY)}${card("Proposals", this.num(this.kpis.proposals), this.kpis.proposalsYoY)}${card("Active dealers", this.num(this.kpis.dealers), this.kpis.dealersYoY)}</div>
-${idxSection}
-<h2>Category share by brand</h2>
-<table><thead><tr><th>#</th><th>Brand</th><th class="n">Total sales</th><th class="n">$ share</th><th class="n">Units</th><th class="n"># SKUs</th></tr></thead><tbody>${brandHtml}</tbody></table>
-<h2>Top items</h2>
-<table><thead><tr><th>Brand</th><th>Model</th><th class="n">Total sales</th><th class="n">$ share</th></tr></thead><tbody>${itemHtml}</tbody></table>
-${trendSection}
-<h2>Competitive displacement</h2>
-<div class="two"><div><div style="font-size:12px;font-weight:700;color:#1d9e75">Business won — competitors displaced</div><ul>${wonHtml}</ul></div><div><div style="font-size:12px;font-weight:700;color:#d85a30">Business lost — you were displaced</div><ul>${lostHtml}</ul></div></div>
-<div class="ft">Generated ${new Date().toISOString().slice(0, 10)} · ${this.esc(company)} · ${this.esc(this.session.name)} · Portal.io</div>
-</body></html>`;
+  async pull(): Promise<void> {
+    this.pdfBusy = true;
+    this.notice = "";
+    try {
+      const blob = await this.buildPdf();
+      const fname = "Portal Market Insights Report - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".pdf";
+      this.dl.request({ kind: "pdf", filename: fname, blobData: blob });
+    } catch (e: any) {
+      this.loadError = "Couldn't build the report PDF: " + ((e && e.message) || e);
+    } finally {
+      this.pdfBusy = false;
+    }
   }
 
-  // ---- Static SVG charts for the printable report (no Angular runtime there). ----
-  private axv(v: number, f: "money" | "pct" | "num"): string {
-    if (f === "money") return this.money(v);
-    if (f === "pct") return (Math.round(v * 10) / 10) + "%";
-    return this.num(v);
-  }
-  private xLabels(labels: string[], xOf: (i: number) => number, y: number): string {
-    const n = labels.length; if (!n) return "";
-    const idx = n <= 2 ? labels.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
-    return idx.map((i) => `<text x="${xOf(i).toFixed(1)}" y="${y}" text-anchor="middle" font-size="9" fill="#8a8a8a">${this.esc(labels[i])}</text>`).join("");
-  }
-  /** Competitive index: multi-line share-of-category (%) for the selected brands. */
-  private svgMulti(series: MultiSeries[], axis: string[], yLabel: string): string {
-    const live = series.filter((s) => s.values && s.values.length);
-    if (!live.length || !axis.length) return "";
-    const W = 860, H = 250, padL = 50, padR = 14, padT = 12, padB = 30, iw = W - padL - padR, ih = H - padT - padB;
-    const n = axis.length, max = Math.max(1, ...live.flatMap((s) => s.values.filter((v) => v != null)));
-    const x = (i: number) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
-    const y = (v: number) => padT + ih - (Math.max(0, v || 0) / max) * ih;
-    const grid = [0, 0.25, 0.5, 0.75, 1].map((g) => { const gy = padT + ih - g * ih; return `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="#ececef" stroke-width="1"/><text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#8a8a8a">${this.axv(g * max, "pct")}</text>`; }).join("");
-    const lines = live.map((s) => {
-      const pts = s.values.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
-      const dots = s.values.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${n <= 3 ? 4 : 2.5}" fill="${s.color}"/>`).join("");
-      return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"/>${dots}`;
-    }).join("");
-    const legend = live.slice(0, 10).map((s, i) => `<span style="white-space:nowrap;margin-right:14px"><span style="display:inline-block;width:11px;height:3px;background:${s.color};vertical-align:middle"></span> ${this.esc(s.label)}</span>`).join("");
-    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto;display:block">${grid}${lines}${this.xLabels(axis, x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
-  }
-  /** Proposal trend: category (dark, left axis) vs viewed brand (orange dashed, right axis). */
-  private svgDual(points: DualPoint[], brandLabel: string, vfmt: "money" | "pct" | "num", yLabel: string, showBrand: boolean): string {
-    if (!points || !points.length) return "";
-    const W = 860, H = 240, padL = 60, padR = 60, padT = 12, padB = 30, iw = W - padL - padR, ih = H - padT - padB;
-    const n = points.length, catMax = Math.max(1, ...points.map((p) => p.category)), brMax = Math.max(1, ...points.map((p) => p.brand));
-    const x = (i: number) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
-    const yc = (v: number) => padT + ih - (Math.max(0, v || 0) / catMax) * ih;
-    const yb = (v: number) => padT + ih - (Math.max(0, v || 0) / brMax) * ih;
-    const grid = [0, 0.25, 0.5, 0.75, 1].map((g) => {
-      const gy = padT + ih - g * ih;
-      const left = `<text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#27272a">${this.axv(g * catMax, vfmt)}</text>`;
-      const right = showBrand ? `<text x="${W - padR + 6}" y="${(gy + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="#ff5000">${this.axv(g * brMax, vfmt)}</text>` : "";
-      return `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="#ececef" stroke-width="1"/>${left}${right}`;
-    }).join("");
-    const catLine = `<polyline points="${points.map((p, i) => x(i).toFixed(1) + "," + yc(p.category).toFixed(1)).join(" ")}" fill="none" stroke="#27272a" stroke-width="2"/>` +
-      points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${yc(p.category).toFixed(1)}" r="${n <= 3 ? 4 : 2.5}" fill="#27272a"/>`).join("");
-    const brLine = showBrand ? `<polyline points="${points.map((p, i) => x(i).toFixed(1) + "," + yb(p.brand).toFixed(1)).join(" ")}" fill="none" stroke="#ff5000" stroke-width="2.5" stroke-dasharray="7 4"/>` +
-      points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${yb(p.brand).toFixed(1)}" r="${n <= 3 ? 4 : 2.5}" fill="#ff5000"/>`).join("") : "";
-    const legend = `<span style="margin-right:14px"><span style="display:inline-block;width:11px;height:3px;background:#27272a;vertical-align:middle"></span> Category</span>` +
-      (showBrand ? `<span><span style="display:inline-block;width:11px;height:3px;background:#ff5000;vertical-align:middle"></span> ${this.esc(brandLabel)} <span style="color:#ff5000">(right axis)</span></span>` : "");
-    return `<div class="chartbox"><div class="cyt">${this.esc(yLabel)}</div><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto;display:block">${grid}${catLine}${brLine}${this.xLabels(points.map((p) => p.label), x, H - 10)}</svg><div class="legend">${legend}</div></div>`;
+  /** Build the branded one-page-style report as a real downloadable PDF (jsPDF, vector charts).
+   *  jsPDF is loaded on demand so it stays out of the initial bundle. */
+  private async buildPdf(): Promise<Blob> {
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ unit: "pt", format: "letter", compress: true });
+    const PW = doc.internal.pageSize.getWidth();
+    const PH = doc.internal.pageSize.getHeight();
+    const M = 40, CW = PW - M * 2;
+    const ORANGE: [number, number, number] = [255, 80, 0];
+    const DARK: [number, number, number] = [39, 39, 42];
+    const GREY: [number, number, number] = [138, 138, 138];
+    const GRID: [number, number, number] = [236, 236, 239];
+    const GREEN: [number, number, number] = [29, 158, 117];
+    const RED: [number, number, number] = [216, 90, 48];
+    const company = this.viewAs === "admin" ? "All companies" : this.viewAs;
+    const brandLabel = this.viewAs === "admin" ? "Viewed brand" : this.viewAs;
+    const scope = [this.horizon, this.parents.length ? this.parents.join(", ") : "All categories", this.states.length ? this.states.join(", ") : "All states"].join("   ·   ");
+    const statuses = this.dataMode === "api" ? (this.statuses.join(", ") || "All statuses") : "Sample data";
+    const date = new Date().toISOString().slice(0, 10);
+    const st = { y: M };
+    const hexRgb = (h: string): [number, number, number] => { const m = h.replace("#", ""); const f = m.length === 3 ? m.split("").map((c) => c + c).join("") : m; const n = parseInt(f, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const sc = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
+    const fcol = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
+    const tc = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+    const ensure = (need: number) => { if (st.y + need > PH - M - 24) { doc.addPage(); st.y = M; } };
+    const clip = (t: any, w: number): string => { const s = String(t ?? ""); return doc.splitTextToSize(s, w)[0] || ""; };
+
+    // Header
+    doc.setFont("helvetica", "bold"); doc.setFontSize(19); tc(ORANGE); doc.text("Portal", M, st.y + 8);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); tc(GREY); doc.text("WHERE BRANDS AND INTEGRATORS CONNECT", M, st.y + 19);
+    doc.setFontSize(9); tc(GREY);
+    doc.text("MARKET INSIGHTS", PW - M, st.y + 3, { align: "right" });
+    doc.text("Brand Performance Report", PW - M, st.y + 15, { align: "right" });
+    st.y += 28; fcol(ORANGE); doc.rect(M, st.y, CW, 3, "F"); st.y += 18;
+
+    // Title + scope
+    doc.setFont("helvetica", "bold"); doc.setFontSize(19); tc(DARK); doc.text(company, M, st.y + 6); st.y += 20;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10); tc(GREY); doc.text("Market performance overview", M, st.y); st.y += 14;
+    doc.setFontSize(8.5);
+    const scopeLines: string[] = doc.splitTextToSize(scope + "   ·   Statuses: " + statuses, CW);
+    doc.text(scopeLines, M, st.y); st.y += scopeLines.length * 11 + 8;
+
+    // KPI cards
+    const cards: [string, string, number][] = [
+      ["Brand revenue", this.money(this.kpis.revenue), this.kpis.revenueYoY],
+      ["Units sold", this.num(this.kpis.units), this.kpis.unitsYoY],
+      ["Proposals", this.num(this.kpis.proposals), this.kpis.proposalsYoY],
+      ["Active dealers", this.num(this.kpis.dealers), this.kpis.dealersYoY],
+    ];
+    const gap = 10, cwd = (CW - 3 * gap) / 4, chh = 50;
+    ensure(chh + 6);
+    cards.forEach((c, i) => {
+      const x = M + i * (cwd + gap);
+      sc([229, 229, 229]); doc.setLineWidth(0.7); doc.roundedRect(x, st.y, cwd, chh, 4, 4, "S");
+      doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); tc(GREY); doc.text(c[0].toUpperCase(), x + 8, st.y + 14);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(14); tc(DARK); doc.text(clip(c[1], cwd - 14), x + 8, st.y + 32);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); tc(c[2] >= 0 ? GREEN : RED); doc.text((c[2] >= 0 ? "+" : "-") + Math.abs(c[2]) + "% YoY", x + 8, st.y + 44);
+    });
+    st.y += chh + 20;
+
+    const h2 = (t: string) => { ensure(30); sc([238, 238, 238]); doc.setLineWidth(0.7); doc.line(M, st.y, M + CW, st.y); st.y += 15; doc.setFont("helvetica", "bold"); doc.setFontSize(11.5); tc(DARK); doc.text(t, M, st.y); st.y += 12; };
+
+    // Multi-line chart (competitive index)
+    const drawMulti = (series: MultiSeries[], axis: string[]) => {
+      const live = series.filter((s) => s.values && s.values.length);
+      if (!live.length || !axis.length) return;
+      const H = 160, padL = 46, padR = 12, padT = 8, padB = 20, iw = CW - padL - padR, ih = H - padT - padB;
+      ensure(H + 18); const x0 = M, y0 = st.y;
+      const n = axis.length, max = Math.max(1, ...live.flatMap((s) => s.values.filter((v) => v != null)));
+      const X = (i: number) => x0 + padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+      const Y = (v: number) => y0 + padT + ih - (Math.max(0, v || 0) / max) * ih;
+      sc(GRID); doc.setLineWidth(0.5); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); tc(GREY);
+      [0, 0.25, 0.5, 0.75, 1].forEach((g) => { const gy = y0 + padT + ih - g * ih; doc.line(x0 + padL, gy, x0 + padL + iw, gy); doc.text((Math.round(g * max * 10) / 10) + "%", x0 + padL - 3, gy + 2, { align: "right" }); });
+      live.forEach((s) => {
+        const rgb = hexRgb(s.color); sc(rgb); doc.setLineWidth(1.4);
+        for (let i = 1; i < s.values.length; i++) doc.line(X(i - 1), Y(s.values[i - 1]), X(i), Y(s.values[i]));
+        fcol(rgb); s.values.forEach((v, i) => doc.circle(X(i), Y(v), n <= 3 ? 2.4 : 1.5, "F"));
+      });
+      tc(GREY); doc.setFontSize(6.5);
+      const idx = n <= 2 ? axis.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
+      idx.forEach((i) => doc.text(clip(axis[i], 60), X(i), y0 + H - 6, { align: "center" }));
+      st.y = y0 + H;
+      ensure(16); let lx = M; doc.setFontSize(7.5);
+      live.slice(0, 8).forEach((s) => { const rgb = hexRgb(s.color); fcol(rgb); doc.rect(lx, st.y - 4, 9, 3.5, "F"); tc(DARK); doc.text(s.label, lx + 12, st.y); lx += 12 + doc.getTextWidth(s.label) + 14; if (lx > M + CW - 90) { st.y += 12; lx = M; } });
+      st.y += 16;
+    };
+
+    // Dual-axis chart (category vs brand)
+    const drawDual = (points: DualPoint[], vfmt: "money" | "pct" | "num", showBrand: boolean) => {
+      if (!points || !points.length) return;
+      const H = 160, padL = 52, padR = showBrand ? 52 : 14, padT = 8, padB = 20, iw = CW - padL - padR, ih = H - padT - padB;
+      ensure(H + 18); const x0 = M, y0 = st.y;
+      const n = points.length, catMax = Math.max(1, ...points.map((p) => p.category)), brMax = Math.max(1, ...points.map((p) => p.brand));
+      const X = (i: number) => x0 + padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+      const YC = (v: number) => y0 + padT + ih - (Math.max(0, v || 0) / catMax) * ih;
+      const YB = (v: number) => y0 + padT + ih - (Math.max(0, v || 0) / brMax) * ih;
+      const fmt = (v: number) => vfmt === "money" ? this.money(v) : vfmt === "pct" ? (Math.round(v * 10) / 10) + "%" : this.num(v);
+      sc(GRID); doc.setLineWidth(0.5); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
+      [0, 0.25, 0.5, 0.75, 1].forEach((g) => {
+        const gy = y0 + padT + ih - g * ih; doc.line(x0 + padL, gy, x0 + padL + iw, gy);
+        tc(DARK); doc.text(fmt(g * catMax), x0 + padL - 3, gy + 2, { align: "right" });
+        if (showBrand) { tc(ORANGE); doc.text(fmt(g * brMax), x0 + padL + iw + 3, gy + 2, { align: "left" }); }
+      });
+      sc(DARK); doc.setLineWidth(1.4);
+      for (let i = 1; i < n; i++) doc.line(X(i - 1), YC(points[i - 1].category), X(i), YC(points[i].category));
+      fcol(DARK); points.forEach((p, i) => doc.circle(X(i), YC(p.category), n <= 3 ? 2.4 : 1.5, "F"));
+      if (showBrand) {
+        sc(ORANGE); doc.setLineWidth(1.6); doc.setLineDashPattern([4, 3], 0);
+        for (let i = 1; i < n; i++) doc.line(X(i - 1), YB(points[i - 1].brand), X(i), YB(points[i].brand));
+        doc.setLineDashPattern([], 0); fcol(ORANGE); points.forEach((p, i) => doc.circle(X(i), YB(p.brand), n <= 3 ? 2.4 : 1.5, "F"));
+      }
+      tc(GREY); doc.setFontSize(6.5);
+      const idx = n <= 2 ? points.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
+      idx.forEach((i) => doc.text(clip(points[i].label, 60), X(i), y0 + H - 6, { align: "center" }));
+      st.y = y0 + H;
+      ensure(16); let lx = M; doc.setFontSize(7.5);
+      fcol(DARK); doc.rect(lx, st.y - 4, 9, 3.5, "F"); tc(DARK); doc.text("Category", lx + 12, st.y); lx += 12 + doc.getTextWidth("Category") + 16;
+      if (showBrand) { fcol(ORANGE); doc.rect(lx, st.y - 4, 9, 3.5, "F"); tc(DARK); doc.text(brandLabel + " (right axis)", lx + 12, st.y); }
+      st.y += 16;
+    };
+
+    type Col = { t: string; w: number; r?: boolean };
+    const table = (cols: Col[], rows: string[][], meRow?: (i: number) => boolean) => {
+      const headH = 18, rowH = 15;
+      const head = () => { fcol([247, 247, 248]); doc.rect(M, st.y, CW, headH, "F"); doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); tc(GREY); let x = M; cols.forEach((c) => { doc.text(c.t, c.r ? x + c.w - 4 : x + 4, st.y + 12, { align: c.r ? "right" : "left" }); x += c.w; }); st.y += headH; };
+      ensure(headH + rowH * 2); head();
+      rows.forEach((r, ri) => {
+        if (st.y + rowH > PH - M - 24) { doc.addPage(); st.y = M; head(); }
+        const me = !!(meRow && meRow(ri));
+        if (me) { fcol([255, 241, 234]); doc.rect(M, st.y, CW, rowH, "F"); }
+        doc.setFont("helvetica", me ? "bold" : "normal"); doc.setFontSize(7.5); tc(DARK);
+        let x = M; cols.forEach((c, ci) => { doc.text(clip(r[ci], c.w - 8), c.r ? x + c.w - 4 : x + 4, st.y + 10, { align: c.r ? "right" : "left" }); x += c.w; });
+        sc([240, 240, 240]); doc.setLineWidth(0.4); doc.line(M, st.y + rowH, M + CW, st.y + rowH); st.y += rowH;
+      });
+      st.y += 8;
+    };
+
+    // ===== Body =====
+    if (this.compSeries.some((s) => s.values && s.values.length)) { h2("Competitive index — share of category"); drawMulti(this.compSeries, this.compAxis); }
+
+    h2("Category share by brand");
+    table(
+      [{ t: "#", w: 24 }, { t: "Brand", w: CW - 24 - 100 - 78 - 70 - 60 }, { t: "Total sales", w: 100, r: true }, { t: "$ share", w: 78, r: true }, { t: "Units", w: 70, r: true }, { t: "SKUs", w: 60, r: true }],
+      this.brandRows.slice(0, 12).map((r, i) => [String(i + 1), r.brand, this.cur(r.sales), this.pct(r.sharePct / 100), this.num(r.units), this.num(r.skus)]),
+      (i) => !!this.brandRows[i] && this.brandRows[i].brand === this.viewAs,
+    );
+
+    h2("Top items");
+    table(
+      [{ t: "Brand", w: 120 }, { t: "Model", w: CW - 120 - 110 - 100 }, { t: "Total sales", w: 110, r: true }, { t: "$ share", w: 100, r: true }],
+      this.itemRows.slice(0, 10).map((r) => [r.brand, r.model, this.cur(r.sales), this.pct(r.sharePct / 100)]),
+      (i) => !!this.itemRows[i] && this.itemRows[i].brand === this.viewAs,
+    );
+
+    const subV = this.submitted[0], accV = this.accepted[0];
+    if (subV || accV) {
+      h2("Proposal trends");
+      if (subV) { ensure(14); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); tc(DARK); doc.text("Category value on submitted proposals", M, st.y); st.y += 10; drawDual(subV.points, subV.vfmt, subV.hasBrand); }
+      if (accV) { ensure(14); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); tc(DARK); doc.text("Accepted & completed proposals", M, st.y); st.y += 10; drawDual(accV.points, accV.vfmt, accV.hasBrand); }
+    }
+
+    h2("Competitive displacement");
+    const colW = (CW - 20) / 2;
+    const wonLines = this.won.slice(0, 6).map((d) => "•  " + d.model + " — " + this.num(d.units) + " units, " + this.cur(d.sales) + " (beat " + d.competitorsBeaten + ")");
+    const lostLines = this.lost.slice(0, 6).map((d) => "•  " + d.model + " — " + this.num(d.lostUnits) + " units lost");
+    if (!wonLines.length) wonLines.push("None in the selected range");
+    if (!lostLines.length) lostLines.push("None in the selected range");
+    ensure(24 + Math.max(wonLines.length, lostLines.length) * 11);
+    const dy = st.y;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); tc(GREEN); doc.text("Business won — competitors displaced", M, dy);
+    tc(RED); doc.text("Business lost — you were displaced", M + colW + 20, dy);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); tc(DARK);
+    let wy = dy + 13; wonLines.forEach((l) => { const ls: string[] = doc.splitTextToSize(l, colW); doc.text(ls, M, wy); wy += ls.length * 10; });
+    let ly = dy + 13; lostLines.forEach((l) => { const ls: string[] = doc.splitTextToSize(l, colW); doc.text(ls, M + colW + 20, ly); ly += ls.length * 10; });
+    st.y = Math.max(wy, ly) + 8;
+
+    // Footer (page numbers) on every page
+    const pages = doc.getNumberOfPages();
+    for (let p = 1; p <= pages; p++) {
+      doc.setPage(p); doc.setFont("helvetica", "normal"); doc.setFontSize(7); tc([170, 170, 170]);
+      doc.text("Generated " + date + "   ·   " + company + "   ·   " + this.session.name + "   ·   Portal.io", M, PH - 18);
+      doc.text("Page " + p + " of " + pages, PW - M, PH - 18, { align: "right" });
+    }
+
+    return doc.output("blob");
   }
 
   money(n: number): string { if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B"; if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return "$" + Math.round(n / 1e3) + "k"; return "$" + Math.round(n); }

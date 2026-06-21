@@ -2,7 +2,7 @@ import { Injectable, inject } from "@angular/core";
 import { AuthService } from "./auth.service";
 import { ActivityService } from "./activity.service";
 
-export interface PendingDownload { kind: "csv" | "pdf"; filename: string; build?: () => string; }
+export interface PendingDownload { kind: "csv" | "pdf"; filename: string; build?: () => string; blobData?: Blob; }
 export interface DownloadLog { ts: number; user: string; ip: string; filename: string; kind: string; }
 
 const LS = "pvi_downloads";
@@ -39,9 +39,15 @@ export class DownloadService {
       a.click();
       URL.revokeObjectURL(url);
     } else if (p.kind === "pdf") {
-      if (p.build) {
-        // Navigate the new window to a real Blob document instead of document.write(): a written
-        // document can paint only partially on screen (it renders fully only when printed).
+      if (p.blobData) {
+        // Real generated PDF file → straight one-click download (no popup window to mis-render).
+        const url = URL.createObjectURL(p.blobData);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = p.filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } else if (p.build) {
         const html = p.build();
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         const url = URL.createObjectURL(blob);
