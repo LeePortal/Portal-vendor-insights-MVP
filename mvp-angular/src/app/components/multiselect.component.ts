@@ -13,7 +13,7 @@ import { FormsModule } from "@angular/forms";
   template: `
     <div class="ms">
       <label *ngIf="label">{{ label }}</label>
-      <button type="button" class="ms-btn" (click)="open = !open">
+      <button type="button" class="ms-btn" [disabled]="disabled" [style.opacity]="disabled ? 0.55 : 1" [style.cursor]="disabled ? 'not-allowed' : 'pointer'" [title]="disabled ? 'Mapping to Redshift pending — dev team to wire dealer → buying-group' : ''" (click)="open = !open">
         <span class="ms-sum">{{ summary }}</span><span class="ms-caret">▾</span>
       </button>
       <div *ngIf="open" class="ms-back" (click)="open = false"></div>
@@ -39,6 +39,7 @@ export class MultiSelectComponent {
   @Input() allLabel = "All";
   @Input() search = true;
   @Input() sort = true; // when false, preserve the caller's option order (e.g. pipeline-ordered statuses)
+  @Input() disabled = false; // greyed-out placeholder (e.g. a filter whose data isn't mapped yet)
   @Output() selectedChange = new EventEmitter<string[]>();
   open = false;
   q = "";

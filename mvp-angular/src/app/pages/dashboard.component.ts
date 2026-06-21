@@ -50,7 +50,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
       <app-multiselect label="Parent category" allLabel="All categories" [options]="parentOptions" [selected]="parents" (selectedChange)="onParents($event)"></app-multiselect>
       <app-multiselect label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="subs = $event; rebuild()"></app-multiselect>
-      <app-multiselect *ngIf="dataMode === 'synthetic'" label="Buying group" allLabel="All buying groups" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
+      <app-multiselect label="Buying group" [allLabel]="dataMode === 'api' ? 'Not mapped yet' : 'All buying groups'" [disabled]="dataMode === 'api'" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
       <app-multiselect label="State" allLabel="All states" [options]="stateOptions" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
       <app-multiselect *ngIf="dataMode === 'api'" label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
       <div class="filt" *ngIf="dataMode === 'synthetic'"><label>Normalization <span class="info-i" title="Filters out brand-new accounts so you see true year-over-year performance.">&#9432;</span></label>

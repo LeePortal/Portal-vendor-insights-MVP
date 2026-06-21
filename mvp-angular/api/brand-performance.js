@@ -201,11 +201,68 @@ module.exports = async (req, res) => {
       dealersYoY: yoy(num(k.deal_cur), num(k.deal_prev)),
     };
 
+    // --- competitive displacement (brand swaps): a removed item (deleted=true) sharing the same
+    //     proposalid + area + parentcat with a surviving item (deleted=false) of a DIFFERENT brand
+    //     is a swap (schema rule). Filter-driven. Fault-isolated: a failure here leaves won/lost
+    //     empty rather than breaking the rest of the dashboard.
+    let won = [], lost = [];
+    try {
+      const sf = (alias, start) => {
+        const w = [], v = [];
+        const add = (col, list) => { if (list && list.length) { v.push(list); w.push(`${alias}.${col} = ANY($${start + v.length - 1})`); } };
+        add("parentcat", f.parents); add("subcat", f.subs); add("state", f.states); add("status", f.statuses);
+        return { clause: w.length ? " AND " + w.join(" AND ") : "", vals: v };
+      };
+      const wB = sf("b", 2), lA = sf("a", 2), dA = sf("a", 2);
+      const [wonRes, lostRes, dispRes] = await Promise.all([
+        p.query(
+          `WITH wi AS (
+             SELECT b.proposalitemid, b.model, b.subcat, MAX(b.quantity) AS qty, MAX(b.total_sell) AS sell, COUNT(DISTINCT a.brand) AS comps
+             FROM ${FACT} b JOIN ${FACT} a
+               ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND a.deleted = true AND a.brand <> b.brand
+             WHERE b.brand = $1 AND b.deleted = false${wB.clause}
+             GROUP BY b.proposalitemid, b.model, b.subcat)
+           SELECT model, MAX(subcat) AS subcat, SUM(qty) AS units, SUM(sell) AS sales, SUM(comps) AS competitors_beaten
+           FROM wi GROUP BY model ORDER BY units DESC LIMIT 12`,
+          [tenant.brand, ...wB.vals]),
+        p.query(
+          `WITH li AS (
+             SELECT a.proposalitemid, a.model, a.parentcat, MAX(a.quantity) AS qty, MAX(a.total_sell) AS sell
+             FROM ${FACT} a JOIN ${FACT} b
+               ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND b.deleted = false AND b.brand <> a.brand
+             WHERE a.brand = $1 AND a.deleted = true${lA.clause}
+             GROUP BY a.proposalitemid, a.model, a.parentcat)
+           SELECT model, MAX(parentcat) AS subcat, SUM(qty) AS lost_units, SUM(sell) AS lost_sales
+           FROM li GROUP BY model ORDER BY lost_units DESC LIMIT 12`,
+          [tenant.brand, ...lA.vals]),
+        p.query(
+          `SELECT a.model AS lost_model, b.brand AS disp_brand, b.model AS disp_model, SUM(b.quantity) AS units
+           FROM ${FACT} a JOIN ${FACT} b
+             ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND b.deleted = false AND b.brand <> a.brand
+           WHERE a.brand = $1 AND a.deleted = true${dA.clause}
+           GROUP BY a.model, b.brand, b.model`,
+          [tenant.brand, ...dA.vals]),
+      ]);
+      won = wonRes.rows.map((r) => ({ model: r.model, desc: r.subcat || "", brand: tenant.brand, units: num(r.units), sales: num(r.sales), competitorsBeaten: num(r.competitors_beaten) }));
+      const dispBy = new Map();
+      for (const r of dispRes.rows) {
+        if (!dispBy.has(r.lost_model)) dispBy.set(r.lost_model, []);
+        dispBy.get(r.lost_model).push({ brand: r.disp_brand, model: r.disp_model, units: num(r.units) });
+      }
+      lost = lostRes.rows.map((r) => ({
+        model: r.model, subcat: r.subcat || "", lostUnits: num(r.lost_units), lostSales: num(r.lost_sales),
+        displacers: (dispBy.get(r.model) || []).sort((x, y) => y.units - x.units).slice(0, 6),
+      }));
+    } catch (e) {
+      console.error("displacement error:", (e && e.message) || e);
+      won = []; lost = [];
+    }
+
     const payload = {
       brandRows, itemRows, subcatRows,
       share: { labels, rows: brandRows, series },
       kpis,
-      submitted: [], accepted: [], won: [], lost: [],
+      submitted: [], accepted: [], won, lost,
     };
     cache.set(key, { at: Date.now(), data: payload });
     res.status(200).json(payload);
