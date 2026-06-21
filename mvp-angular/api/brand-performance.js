@@ -59,6 +59,28 @@ function pool() {
   return _pool;
 }
 
+// Dedicated pool for the heavier "extras" (displacement self-joins + proposal sections) with a
+// SHORT statement_timeout so they fail fast and can never push the function past its time budget.
+let _xpool = null;
+function xpool() {
+  if (_xpool) return _xpool;
+  const { Pool } = require("pg");
+  _xpool = new Pool({
+    host: process.env.REDSHIFT_HOST,
+    port: Number(process.env.REDSHIFT_PORT || 5439),
+    database: process.env.REDSHIFT_DATABASE,
+    user: process.env.REDSHIFT_USER,
+    password: process.env.REDSHIFT_PASSWORD,
+    ssl: { rejectUnauthorized: false },
+    max: 10,
+    connectionTimeoutMillis: 8000,
+    statement_timeout: 18000,
+    idleTimeoutMillis: 30000,
+  });
+  _xpool.on("error", (err) => console.error("pg xpool error:", (err && err.message) || err));
+  return _xpool;
+}
+
 // TODO: replace with real auth — derive viewed brand from the verified session/JWT (Portal SSO).
 function resolveTenant(_req) { return { brand: "Sonos", allowedParents: [] }; }
 
@@ -201,69 +223,111 @@ module.exports = async (req, res) => {
       dealersYoY: yoy(num(k.deal_cur), num(k.deal_prev)),
     };
 
-    // --- competitive displacement (brand swaps): a removed item (deleted=true) sharing the same
-    //     proposalid + area + parentcat with a surviving item (deleted=false) of a DIFFERENT brand
-    //     is a swap (schema rule). Filter-driven. Fault-isolated: a failure here leaves won/lost
-    //     empty rather than breaking the rest of the dashboard.
-    let won = [], lost = [];
+    // --- "Extras": competitive displacement (brand swaps) + the two proposal funnel sections.
+    //     Displacement = a removed item (deleted=true) sharing proposalid+area+parentcat with a
+    //     surviving item (deleted=false) of a DIFFERENT brand. Proposal sections are stage-defined
+    //     (ignore the status selector): Submitted = pipeline by submitted date; Accepted = closed-won
+    //     by accepteddate. All run on the short-timeout pool and are fault-isolated — a failure here
+    //     leaves these sections empty rather than breaking the core dashboard.
+    let won = [], lost = [], submitted = [], accepted = [];
     try {
-      const sf = (alias, start) => {
-        const w = [], v = [];
-        const add = (col, list) => { if (list && list.length) { v.push(list); w.push(`${alias}.${col} = ANY($${start + v.length - 1})`); } };
-        add("parentcat", f.parents); add("subcat", f.subs); add("state", f.states); add("status", f.statuses);
+      const xp = xpool();
+      // filter clause builder. alias '' = no prefix; withStatus only for displacement.
+      const flt = (alias, start, withStatus) => {
+        const w = [], v = [], a = alias ? alias + "." : "";
+        const add = (col, list) => { if (list && list.length) { v.push(list); w.push(`${a}${col} = ANY($${start + v.length - 1})`); } };
+        add("parentcat", f.parents); add("subcat", f.subs); add("state", f.states);
+        if (withStatus) add("status", f.statuses);
         return { clause: w.length ? " AND " + w.join(" AND ") : "", vals: v };
       };
-      const dCond = (alias) => (curStart ? ` AND ${alias}.submitted >= ${curStart}` : "");
-      const wB = sf("b", 2), lA = sf("a", 2), dA = sf("a", 2);
-      const [wonRes, lostRes, dispRes] = await Promise.all([
-        p.query(
-          `WITH wi AS (
-             SELECT b.proposalitemid, b.model, b.subcat, MAX(b.quantity) AS qty, MAX(b.total_sell) AS sell, COUNT(DISTINCT a.brand) AS comps
-             FROM ${FACT} b JOIN ${FACT} a
-               ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND a.deleted = true AND a.brand <> b.brand
-             WHERE b.brand = $1 AND b.deleted = false${wB.clause}${dCond("b")}
-             GROUP BY b.proposalitemid, b.model, b.subcat)
-           SELECT model, MAX(subcat) AS subcat, SUM(qty) AS units, SUM(sell) AS sales, SUM(comps) AS competitors_beaten
-           FROM wi GROUP BY model ORDER BY units DESC LIMIT 12`,
+      const swapWin = (a) => (curStart ? ` AND ${a}.submitted >= ${curStart}` : "");
+      const subWin = curStart ? ` AND submitted >= ${curStart}` : "";
+      const accWin = curStart ? ` AND CAST(accepteddate AS DATE) >= ${curStart}` : "";
+      const stCol = f.states.length ? ` AND state = ANY($1)` : "";
+      const stVals = f.states.length ? [f.states] : [];
+      const wB = flt("b", 2, true), lA = flt("a", 2, true), dA = flt("a", 2, true);
+      const sF = flt("", 2, false), aF = flt("", 2, false);
+
+      const [wonRes, lostRes, dispRes, subMain, subDen, accMain, accDen] = await Promise.all([
+        xp.query(
+          `WITH wi AS (SELECT b.proposalitemid, b.model, b.subcat, MAX(b.quantity) AS qty, MAX(b.total_sell) AS sell, COUNT(DISTINCT a.brand) AS comps
+             FROM ${FACT} b JOIN ${FACT} a ON a.proposalid=b.proposalid AND a.area=b.area AND a.parentcat=b.parentcat AND a.deleted=true AND a.brand<>b.brand
+             WHERE b.brand=$1 AND b.deleted=false${wB.clause}${swapWin("b")} GROUP BY b.proposalitemid, b.model, b.subcat)
+           SELECT model, MAX(subcat) AS subcat, SUM(qty) AS units, SUM(sell) AS sales, SUM(comps) AS competitors_beaten FROM wi GROUP BY model ORDER BY units DESC LIMIT 12`,
           [tenant.brand, ...wB.vals]),
-        p.query(
-          `WITH li AS (
-             SELECT a.proposalitemid, a.model, a.parentcat, MAX(a.quantity) AS qty, MAX(a.total_sell) AS sell
-             FROM ${FACT} a JOIN ${FACT} b
-               ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND b.deleted = false AND b.brand <> a.brand
-             WHERE a.brand = $1 AND a.deleted = true${lA.clause}${dCond("a")}
-             GROUP BY a.proposalitemid, a.model, a.parentcat)
-           SELECT model, MAX(parentcat) AS subcat, SUM(qty) AS lost_units, SUM(sell) AS lost_sales
-           FROM li GROUP BY model ORDER BY lost_units DESC LIMIT 12`,
+        xp.query(
+          `WITH li AS (SELECT a.proposalitemid, a.model, a.parentcat, MAX(a.quantity) AS qty, MAX(a.total_sell) AS sell
+             FROM ${FACT} a JOIN ${FACT} b ON a.proposalid=b.proposalid AND a.area=b.area AND a.parentcat=b.parentcat AND b.deleted=false AND b.brand<>a.brand
+             WHERE a.brand=$1 AND a.deleted=true${lA.clause}${swapWin("a")} GROUP BY a.proposalitemid, a.model, a.parentcat)
+           SELECT model, MAX(parentcat) AS subcat, SUM(qty) AS lost_units, SUM(sell) AS lost_sales FROM li GROUP BY model ORDER BY lost_units DESC LIMIT 12`,
           [tenant.brand, ...lA.vals]),
-        p.query(
+        xp.query(
           `SELECT a.model AS lost_model, b.brand AS disp_brand, b.model AS disp_model, SUM(b.quantity) AS units
-           FROM ${FACT} a JOIN ${FACT} b
-             ON a.proposalid = b.proposalid AND a.area = b.area AND a.parentcat = b.parentcat AND b.deleted = false AND b.brand <> a.brand
-           WHERE a.brand = $1 AND a.deleted = true${dA.clause}${dCond("a")}
-           GROUP BY a.model, b.brand, b.model`,
+           FROM ${FACT} a JOIN ${FACT} b ON a.proposalid=b.proposalid AND a.area=b.area AND a.parentcat=b.parentcat AND b.deleted=false AND b.brand<>a.brand
+           WHERE a.brand=$1 AND a.deleted=true${dA.clause}${swapWin("a")} GROUP BY a.model, b.brand, b.model`,
           [tenant.brand, ...dA.vals]),
+        xp.query(
+          `SELECT DATE_TRUNC('${u}', submitted) AS period, SUM(total_sell) AS cat_value,
+                  SUM(CASE WHEN brand=$1 THEN total_sell ELSE 0 END) AS brand_value,
+                  APPROXIMATE COUNT(DISTINCT proposalid) AS cat_props,
+                  APPROXIMATE COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
+           FROM ${FACT} WHERE deleted=false AND submitted IS NOT NULL${subWin}${sF.clause}
+           GROUP BY DATE_TRUNC('${u}', submitted) ORDER BY period`,
+          [tenant.brand, ...sF.vals]),
+        xp.query(
+          `SELECT DATE_TRUNC('${u}', submitted) AS period, APPROXIMATE COUNT(DISTINCT proposalid) AS all_props
+           FROM ${FACT} WHERE deleted=false AND submitted IS NOT NULL${subWin}${stCol}
+           GROUP BY DATE_TRUNC('${u}', submitted)`,
+          stVals),
+        xp.query(
+          `SELECT DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) AS period, SUM(total_sell) AS cat_value,
+                  SUM(CASE WHEN brand=$1 THEN total_sell ELSE 0 END) AS brand_value,
+                  APPROXIMATE COUNT(DISTINCT proposalid) AS cat_props,
+                  APPROXIMATE COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
+           FROM ${FACT} WHERE deleted=false AND accepteddate IS NOT NULL AND closed_won_flag=true${accWin}${aF.clause}
+           GROUP BY DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) ORDER BY period`,
+          [tenant.brand, ...aF.vals]),
+        xp.query(
+          `SELECT DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) AS period, APPROXIMATE COUNT(DISTINCT proposalid) AS all_props
+           FROM ${FACT} WHERE deleted=false AND accepteddate IS NOT NULL AND closed_won_flag=true${accWin}${stCol}
+           GROUP BY DATE_TRUNC('${u}', CAST(accepteddate AS DATE))`,
+          stVals),
       ]);
+
       won = wonRes.rows.map((r) => ({ model: r.model, desc: r.subcat || "", brand: tenant.brand, units: num(r.units), sales: num(r.sales), competitorsBeaten: num(r.competitors_beaten) }));
       const dispBy = new Map();
-      for (const r of dispRes.rows) {
-        if (!dispBy.has(r.lost_model)) dispBy.set(r.lost_model, []);
-        dispBy.get(r.lost_model).push({ brand: r.disp_brand, model: r.disp_model, units: num(r.units) });
-      }
-      lost = lostRes.rows.map((r) => ({
-        model: r.model, subcat: r.subcat || "", lostUnits: num(r.lost_units), lostSales: num(r.lost_sales),
-        displacers: (dispBy.get(r.model) || []).sort((x, y) => y.units - x.units).slice(0, 6),
-      }));
+      for (const r of dispRes.rows) { if (!dispBy.has(r.lost_model)) dispBy.set(r.lost_model, []); dispBy.get(r.lost_model).push({ brand: r.disp_brand, model: r.disp_model, units: num(r.units) }); }
+      lost = lostRes.rows.map((r) => ({ model: r.model, subcat: r.subcat || "", lostUnits: num(r.lost_units), lostSales: num(r.lost_sales), displacers: (dispBy.get(r.model) || []).sort((x, y) => y.units - x.units).slice(0, 6) }));
+
+      const assemble = (rows, denomRows) => {
+        const dm = new Map(); for (const r of denomRows) dm.set(pkey(r.period), num(r.all_props));
+        const dn = (r) => dm.get(pkey(r.period)) || 0;
+        const mk = (kind, catFn, brFn) => {
+          const points = rows.map((r) => ({ label: fmtPeriod(r.period, agg), category: Math.round(catFn(r) * 100) / 100, brand: Math.round(brFn(r) * 100) / 100 }));
+          const cats = points.map((pt) => pt.category);
+          const total = kind === "pct" ? (cats.length ? cats[cats.length - 1] : 0) : kind === "avg" ? (cats.length ? cats.reduce((a, b) => a + b, 0) / cats.length : 0) : cats.reduce((a, b) => a + b, 0);
+          const first = cats.length ? cats[0] : 0, last = cats.length ? cats[cats.length - 1] : 0;
+          return { kind, points, total: Math.round(total * 100) / 100, yoy: first > 0 ? Math.round(((last - first) / first) * 100) : 0, hasBrand: true };
+        };
+        return [
+          mk("value", (r) => num(r.cat_value), (r) => num(r.brand_value)),
+          mk("count", (r) => num(r.cat_props), (r) => num(r.brand_props)),
+          mk("pct", (r) => (dn(r) ? (num(r.cat_props) / dn(r)) * 100 : 0), (r) => (dn(r) ? (num(r.brand_props) / dn(r)) * 100 : 0)),
+          mk("avg", (r) => (num(r.cat_props) ? num(r.cat_value) / num(r.cat_props) : 0), (r) => (num(r.brand_props) ? num(r.brand_value) / num(r.brand_props) : 0)),
+        ];
+      };
+      submitted = assemble(subMain.rows, subDen.rows);
+      accepted = assemble(accMain.rows, accDen.rows);
     } catch (e) {
-      console.error("displacement error:", (e && e.message) || e);
-      won = []; lost = [];
+      console.error("extras (displacement/proposals) error:", (e && e.message) || e);
+      won = []; lost = []; submitted = []; accepted = [];
     }
 
     const payload = {
       brandRows, itemRows, subcatRows,
       share: { labels, rows: brandRows, series },
       kpis,
-      submitted: [], accepted: [], won, lost,
+      submitted, accepted, won, lost,
     };
     cache.set(key, { at: Date.now(), data: payload });
     res.status(200).json(payload);
