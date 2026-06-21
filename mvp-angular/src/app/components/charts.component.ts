@@ -145,12 +145,14 @@ interface DPoint { label: string; category: number; brand: number; }
       <div class="chart-yt">{{ yLabel }}</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex">
-          <div class="chart-yticks" [style.height.px]="ph"><span>{{ fv(max) }}</span><span>{{ fv(max/2) }}</span><span>0</span></div>
+          <div class="chart-yticks" [style.height.px]="ph"><span>{{ fv(catMax) }}</span><span>{{ fv(catMax/2) }}</span><span>0</span></div>
           <div class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
               <polyline [attr.points]="line('category')" fill="none" stroke="#27272a" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
               <polyline *ngIf="showBrand" [attr.points]="line('brand')" fill="none" stroke="#ff5000" stroke-width="2.5" vector-effect="non-scaling-stroke"></polyline>
+              <g><circle *ngFor="let p of pts('category')" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="points.length <= 3 ? 5 : 3" fill="#27272a"></circle></g>
+              <g *ngIf="showBrand"><circle *ngFor="let p of pts('brand')" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="points.length <= 3 ? 5 : 3" fill="#ff5000"></circle></g>
             </svg>
             <div class="chart-guide" *ngIf="hi>=0 && points.length" [style.left.%]="guideX"></div>
             <div class="chart-tip" *ngIf="hi>=0 && points[hi]" [style.left.%]="guideX">
@@ -159,12 +161,13 @@ interface DPoint { label: string; category: number; brand: number; }
               <div *ngIf="showBrand"><span class="chart-dot" style="background:#ff5000"></span>{{ brandLabel }}: {{ fv(points[hi].brand) }}</div>
             </div>
           </div>
+          <div class="chart-yticks" *ngIf="showBrand" [style.height.px]="ph" style="color:#ff5000"><span>{{ fv(brandMax) }}</span><span>{{ fv(brandMax/2) }}</span><span>0</span></div>
         </div>
         <div class="chart-xrow"><span *ngFor="let l of axisLabels">{{ l }}</span></div>
         <div class="chart-xt">{{ xLabel }}</div>
         <div style="display:flex;gap:14px;font-size:11px;color:var(--text-muted);margin-top:4px;margin-left:46px">
           <span><span style="display:inline-block;width:10px;height:2px;background:#27272a;vertical-align:middle"></span> Category</span>
-          <span *ngIf="showBrand"><span style="display:inline-block;width:10px;height:2px;background:#ff5000;vertical-align:middle"></span> {{ brandLabel }}</span>
+          <span *ngIf="showBrand"><span style="display:inline-block;width:10px;height:2px;background:#ff5000;vertical-align:middle"></span> {{ brandLabel }} <span style="color:#ff5000">(right axis)</span></span>
         </div>
       </div>
     </div>
@@ -179,9 +182,10 @@ export class DualLineChartComponent {
   @Input() valueFormat: VFmt = "money";
   W = 640; H = 210; pad = 12; ph = 215; hi = -1;
   fv(v: number): string { return fmtVal(v, this.valueFormat); }
-  get max(): number { return Math.max(1, ...this.points.map((p) => Math.max(p.category, p.brand))); }
-  private xy(key: "category" | "brand"): { x: number; y: number }[] { const n = this.points.length; return this.points.map((p, i) => ({ x: n <= 1 ? 0 : (i / (n - 1)) * this.W, y: this.H - (p[key] / this.max) * (this.H - this.pad) })); }
-  line(key: "category" | "brand"): string { return this.xy(key).map((p) => p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" "); }
+  get catMax(): number { return Math.max(1, ...this.points.map((p) => p.category)); }
+  get brandMax(): number { return Math.max(1, ...this.points.map((p) => p.brand)); }
+  pts(key: "category" | "brand"): { x: number; y: number }[] { const n = this.points.length; const m = key === "brand" ? this.brandMax : this.catMax; return this.points.map((p, i) => ({ x: n <= 1 ? this.W / 2 : (i / (n - 1)) * this.W, y: this.H - (p[key] / m) * (this.H - this.pad) })); }
+  line(key: "category" | "brand"): string { return this.pts(key).map((p) => p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" "); }
   get gridYs(): number[] { return [0.2, 0.4, 0.6, 0.8].map((fr) => this.H - fr * (this.H - this.pad)); }
   get gridXs(): number[] { return [0.2, 0.4, 0.6, 0.8].map((fr) => fr * this.W); }
   get axisLabels(): string[] { const n = this.points.length; if (n <= 2) return this.points.map((p) => p.label); return [this.points[0].label, this.points[Math.floor(n / 2)].label, this.points[n - 1].label]; }

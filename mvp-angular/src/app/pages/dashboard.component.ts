@@ -370,10 +370,23 @@ export class DashboardComponent implements OnInit {
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }
 
   exportCsv(): void {
-    const rows = ["brand,model,description,parentcat_filtered,total_sales,units_sold,avg_sell"];
-    for (const it of this.itemRows) rows.push([it.brand, it.model, it.desc, this.parents.join("|") || "all", Math.round(it.sales), it.units, it.avgSell.toFixed(2)].join(","));
-    const fname = "Portal.io Market Insights - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + " " + this.session.name + ".csv";
-    this.dl.request({ kind: "csv", filename: fname, build: () => rows.join("\n") });
+    const esc = (v: string | number) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const meta: (string | number)[][] = [
+      ["Portal.io Market Insights — Category Share by Item"],
+      ["Company", this.viewAs === "admin" ? "All companies (admin)" : this.viewAs],
+      ["Date range", this.horizon],
+      ["Parent categories", this.parents.join("; ") || "All"],
+      ["Sub-categories", this.subs.join("; ") || "All"],
+      ["States", this.states.join("; ") || "All"],
+      ["Proposal statuses", this.dataMode === "api" ? (this.statuses.join("; ") || "All") : "n/a (sample data)"],
+      ["Generated", new Date().toISOString().slice(0, 10) + " · " + this.session.name],
+      [],
+      ["Brand", "Model", "Description", "Total Sales (USD)", "$ Share %", "Units", "Unit Share %", "Avg Sell (USD)"],
+    ];
+    const lines = meta.map((r) => r.map(esc).join(","));
+    for (const it of this.itemRows) lines.push([it.brand, it.model, it.desc, Math.round(it.sales), it.sharePct.toFixed(2), Math.round(it.units), it.unitSharePct.toFixed(2), it.avgSell.toFixed(2)].map(esc).join(","));
+    const fname = "Portal.io Market Insights - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".csv";
+    this.dl.request({ kind: "csv", filename: fname, build: () => lines.join("\n") });
   }
   pull(): void {
     const fname = "Portal.io Market Insights - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + " " + this.session.name + ".pdf";
