@@ -73,7 +73,7 @@ function resolveTenant(_req) { return { allowedParents: [] }; }
 function reqFilters(req) {
   const q = req.query || {};
   const arr = (v) => (v ? String(v).split(",").filter(Boolean) : []);
-  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), horizon: String(q.horizon || "YTD") };
+  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), horizon: String(q.horizon || "YTD"), from: String(q.from || ""), to: String(q.to || "") };
 }
 
 /** deleted hygiene + governance category + user category/state/status filters. */
@@ -112,9 +112,18 @@ module.exports = async (req, res) => {
     const tenant = resolveTenant(req);
     const f = reqFilters(req);
     const fb = baseFilter(tenant, f);
-    const hz = ["MTD", "QTD", "YTD", "All"].includes(f.horizon) ? f.horizon : "YTD";
-    const curStart = HORIZON_START[hz] || null; // null === "All"
-    const where = curStart ? `${fb.where} AND submitted >= ${curStart}` : fb.where;
+    const hz = ["MTD", "QTD", "YTD", "Custom"].includes(f.horizon) ? f.horizon : "YTD";
+    const DRE = /^\d{4}-\d{2}-\d{2}$/;
+    let startSql, endSql;
+    if (hz === "Custom" && DRE.test(f.from) && DRE.test(f.to)) {
+      const fromV = f.from < "2022-01-01" ? "2022-01-01" : f.from; // data floor: nothing reliable before 2022
+      startSql = `CAST('${fromV}' AS DATE)`;
+      endSql = `DATEADD(day, 1, CAST('${f.to}' AS DATE))`;
+    } else {
+      startSql = HORIZON_START[hz] || HORIZON_START.YTD;
+      endSql = "DATEADD(day, 1, TRUNC(GETDATE()))";
+    }
+    const where = `${fb.where} AND submitted >= ${startSql} AND submitted < ${endSql}`;
     const cols = COLUMNS.map(([src]) => src).join(", ");
 
     const r = await pool().query(

@@ -10,7 +10,9 @@ export interface AFilter {
   statuses?: string[]; // proposal statuses (live mode only); empty = all
   normalize: boolean;
   agg: string;
-  horizon: string;
+  horizon: string;   // "MTD" | "QTD" | "YTD" | "Custom"
+  from?: string;     // ISO yyyy-mm-dd, used when horizon === "Custom"
+  to?: string;       // ISO yyyy-mm-dd, used when horizon === "Custom"
 }
 export interface BrandShareRow { brand: string; sales: number; sharePct: number; units: number; unitSharePct: number; avgSell: number; skus: number; }
 export interface ItemRow { brand: string; model: string; desc: string; sales: number; sharePct: number; units: number; unitSharePct: number; avgSell: number; }

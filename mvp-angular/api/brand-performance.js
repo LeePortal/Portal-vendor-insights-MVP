@@ -87,7 +87,7 @@ function resolveTenant(_req) { return { brand: "Sonos", allowedParents: [] }; }
 function reqFilters(req) {
   const q = req.query || {};
   const arr = (v) => (v ? String(v).split(",").filter(Boolean) : []);
-  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), agg: String(q.agg || "monthly"), horizon: String(q.horizon || "YTD") };
+  return { parents: arr(q.parents), subs: arr(q.subs), states: arr(q.states), statuses: arr(q.statuses), agg: String(q.agg || "monthly"), horizon: String(q.horizon || "YTD"), from: String(q.from || ""), to: String(q.to || ""), normalize: q.normalize === "true" };
 }
 
 /** Category-wide WHERE: deleted hygiene + user/governance category, state, status filters. */
@@ -134,21 +134,38 @@ module.exports = async (req, res) => {
 
     const fb = baseFilter(tenant, f);
     const u = AGG[agg].unit;
-    const hz = ["MTD", "QTD", "YTD", "All"].includes(f.horizon) ? f.horizon : "YTD";
-    const curStart = HORIZON_START[hz] || null; // null === "All" (no date lower bound)
-    const whereH = curStart ? `${fb.where} AND submitted >= ${curStart}` : fb.where;
-    const seriesWhere = `${fb.where} AND submitted IS NOT NULL` + (curStart ? ` AND submitted >= ${curStart}` : "");
+    // Date Range window. Presets (MTD/QTD/YTD) run from the period start through end of today.
+    // "Custom" uses explicit from/to dates (validated as yyyy-mm-dd to prevent SQL injection;
+    // any malformed value falls back to YTD). The "All" option was removed.
+    const hz = ["MTD", "QTD", "YTD", "Custom"].includes(f.horizon) ? f.horizon : "YTD";
+    const DRE = /^\d{4}-\d{2}-\d{2}$/;
+    let startSql, endSql;
+    if (hz === "Custom" && DRE.test(f.from) && DRE.test(f.to)) {
+      const fromV = f.from < "2022-01-01" ? "2022-01-01" : f.from; // data floor: nothing reliable before 2022
+      startSql = `CAST('${fromV}' AS DATE)`;
+      endSql = `DATEADD(day, 1, CAST('${f.to}' AS DATE))`; // inclusive of the 'to' day
+    } else {
+      startSql = HORIZON_START[hz] || HORIZON_START.YTD;
+      endSql = "DATEADD(day, 1, TRUNC(GETDATE()))";        // through end of today
+    }
+    const win = (col) => `${col} >= ${startSql} AND ${col} < ${endSql}`;
+    const pwin = (col) => `${col} >= DATEADD(year,-1,${startSql}) AND ${col} < DATEADD(year,-1,${endSql})`;
+    // Normalize data = only dealers active in BOTH the selected window and the same window a year
+    // earlier (true year-over-year cohort). Applied to the category share, items, series and KPIs.
+    const normCond = f.normalize
+      ? ` AND dealerid IN (SELECT dealerid FROM ${FACT} WHERE ${fb.where} AND ${win("submitted")} INTERSECT SELECT dealerid FROM ${FACT} WHERE ${fb.where} AND ${pwin("submitted")})`
+      : "";
+    const whereH = `${fb.where} AND ${win("submitted")}${normCond}`;
+    const seriesWhere = `${fb.where} AND submitted IS NOT NULL AND ${win("submitted")}${normCond}`;
     const kvals = fb.vals.slice(); kvals.push(tenant.brand);
     const bp = `$${kvals.length}`;
 
-    // KPI window expressions: headline = the Date Range window (all-time for "All");
-    // YoY compares that window to the same window one year earlier.
-    const headSum = (m) => curStart ? `SUM(CASE WHEN submitted >= ${curStart} THEN ${m} ELSE 0 END)` : `SUM(${m})`;
-    const headCnt = (c) => curStart ? `COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `COUNT(DISTINCT ${c})`;
-    const curSum = (m) => curStart ? `SUM(CASE WHEN submitted >= ${curStart} THEN ${m} ELSE 0 END)` : `SUM(CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)`;
-    const prevSum = (m) => curStart ? `SUM(CASE WHEN submitted >= DATEADD(year,-1,${curStart}) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)` : `SUM(CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${m} ELSE 0 END)`;
-    const curCnt = (c) => curStart ? `COUNT(DISTINCT CASE WHEN submitted >= ${curStart} THEN ${c} END)` : `COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
-    const prevCnt = (c) => curStart ? `COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-1,${curStart}) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)` : `COUNT(DISTINCT CASE WHEN submitted >= DATEADD(year,-2,GETDATE()) AND submitted < DATEADD(year,-1,GETDATE()) THEN ${c} END)`;
+    // KPI windows: headline = the selected Date Range window; YoY compares it to the same window one year earlier.
+    const headSum = (m) => `SUM(CASE WHEN ${win("submitted")} THEN ${m} ELSE 0 END)`;
+    const headCnt = (c) => `COUNT(DISTINCT CASE WHEN ${win("submitted")} THEN ${c} END)`;
+    const curSum = headSum, curCnt = headCnt;
+    const prevSum = (m) => `SUM(CASE WHEN ${pwin("submitted")} THEN ${m} ELSE 0 END)`;
+    const prevCnt = (c) => `COUNT(DISTINCT CASE WHEN ${pwin("submitted")} THEN ${c} END)`;
     const p = pool();
 
     // run all five aggregates concurrently (separate pooled connections)
@@ -173,7 +190,7 @@ module.exports = async (req, res) => {
                 ${curSum("quantity")} AS un_cur, ${prevSum("quantity")} AS un_prev,
                 ${curCnt("proposalid")} AS prop_cur, ${prevCnt("proposalid")} AS prop_prev,
                 ${curCnt("dealerid")} AS deal_cur, ${prevCnt("dealerid")} AS deal_prev
-         FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}`, kvals),
+         FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}${normCond}`, kvals),
     ]);
 
     const brandRows = brandRes.rows.map((r) => ({
@@ -240,9 +257,9 @@ module.exports = async (req, res) => {
         if (withStatus) add("status", f.statuses);
         return { clause: w.length ? " AND " + w.join(" AND ") : "", vals: v };
       };
-      const swapWin = (a) => (curStart ? ` AND ${a}.submitted >= ${curStart}` : "");
-      const subWin = curStart ? ` AND submitted >= ${curStart}` : "";
-      const accWin = curStart ? ` AND CAST(accepteddate AS DATE) >= ${curStart}` : "";
+      const swapWin = (a) => ` AND ${win(a + ".submitted")}`;
+      const subWin = ` AND ${win("submitted")}`;
+      const accWin = ` AND ${win("CAST(accepteddate AS DATE)")}`;
       const stCol = f.states.length ? ` AND state = ANY($1)` : "";
       const stVals = f.states.length ? [f.states] : [];
       const wB = flt("b", 2, true), lA = flt("a", 2, true), dA = flt("a", 2, true);

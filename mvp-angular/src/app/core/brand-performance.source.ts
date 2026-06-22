@@ -22,6 +22,7 @@ export class BrandPerformanceSource {
     if (DATA_MODE === "api") {
       const params: Record<string, string> = {
         brand: f.brand, agg: f.agg, horizon: f.horizon, normalize: String(f.normalize),
+        from: f.from || "", to: f.to || "",
         parents: f.parents.join(","), subs: f.subs.join(","), buyingGroups: f.buyingGroups.join(","), states: f.states.join(","), statuses: (f.statuses || []).join(","),
       };
       return firstValueFrom(this.http.get<BrandPerfPayload>(API_BASE_URL + "/api/brand-performance", { params }));
@@ -37,7 +38,7 @@ export class BrandPerformanceSource {
   async exportProposals(f: BrandPerfFilter): Promise<{ csv: string; rows: number; truncated: boolean }> {
     const params: Record<string, string> = {
       parents: f.parents.join(","), subs: f.subs.join(","), states: f.states.join(","),
-      statuses: (f.statuses || []).join(","), horizon: f.horizon,
+      statuses: (f.statuses || []).join(","), horizon: f.horizon, from: f.from || "", to: f.to || "",
     };
     const resp = await firstValueFrom(
       this.http.get(API_BASE_URL + "/api/proposal-export", { params, responseType: "text", observe: "response" }));

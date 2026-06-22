@@ -47,15 +47,21 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
       <div class="filt"><label>Date Range</label>
         <div class="tgl">
-          <button *ngFor="let h of horizons" [class.on]="horizon === h" (click)="horizon = h; rebuild()">{{ h }}</button>
+          <button *ngFor="let h of horizons" [class.on]="horizon === h" (click)="setHorizon(h)">{{ h }}</button>
         </div>
+      </div>
+      <div class="filt" *ngIf="horizon === 'Custom'"><label>From</label>
+        <input class="minput" type="date" [value]="fromDate" [min]="minDate" [max]="toDate || today" (change)="onFrom($any($event.target).value)" />
+      </div>
+      <div class="filt" *ngIf="horizon === 'Custom'"><label>To</label>
+        <input class="minput" type="date" [value]="toDate" [min]="fromDate || minDate" [max]="today" (change)="onTo($any($event.target).value)" />
       </div>
       <app-multiselect label="Parent category" allLabel="All categories" [options]="parentOptions" [selected]="parents" (selectedChange)="onParents($event)"></app-multiselect>
       <app-multiselect label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="subs = $event; rebuild()"></app-multiselect>
       <app-multiselect label="Buying group" [allLabel]="dataMode === 'api' ? 'Not mapped yet' : 'All buying groups'" [disabled]="dataMode === 'api'" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
       <app-multiselect label="State" allLabel="All states" [options]="stateOptions" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
       <app-multiselect *ngIf="dataMode === 'api'" label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
-      <div class="filt" *ngIf="dataMode === 'synthetic'"><label>Normalization <span class="info-i" title="Filters out brand-new accounts so you see true year-over-year performance.">&#9432;</span></label>
+      <div class="filt"><label>Normalize data <span class="info-i" title="Shows only dealers active in both the selected window and the same window a year earlier — for a true year-over-year comparison.">&#9432;</span></label>
         <label class="switch"><input type="checkbox" [checked]="normalize" (change)="normalize = !normalize; rebuild()" /><span class="track"></span></label>
       </div>
       <div style="flex:1"></div>
@@ -240,7 +246,9 @@ export class DashboardComponent implements OnInit {
   title = "Brand Performance Overview";
   allBrands = this.va.listCompanies().map((c) => c.name).sort((a, b) => a.localeCompare(b));
   aggs = ["daily", "weekly", "monthly", "quarterly"];
-  horizons = ["MTD", "QTD", "YTD", "All"];
+  horizons = ["MTD", "QTD", "YTD", "Custom"];
+  today = new Date().toISOString().slice(0, 10);
+  minDate = "2022-01-01";
   buyingGroupOptions = this.an.buyingGroups;
   stateOptions = this.an.states;
   statusOptions = ["Completed", "Accepted", "Submitted", "Opened", "Draft", "Changes Required", "Declined", "Expired", "Email Failed"];
@@ -249,6 +257,8 @@ export class DashboardComponent implements OnInit {
   viewAs = "admin";
   agg = "monthly";
   horizon = "YTD";
+  fromDate = "";
+  toDate = "";
   normalize = false;
   parents: string[] = [];
   subs: string[] = [];
@@ -300,8 +310,20 @@ export class DashboardComponent implements OnInit {
   get subOptions(): string[] { return this.parents.length ? this.an.subsForParents(this.parents) : []; }
 
   private filter(): AFilter {
-    return { brand: this.viewAs, parents: this.parents, subs: this.subs, buyingGroups: this.buyingGroups, states: this.states, statuses: this.statuses, normalize: this.normalize, agg: this.agg, horizon: this.horizon };
+    const custom = this.horizon === "Custom";
+    return { brand: this.viewAs, parents: this.parents, subs: this.subs, buyingGroups: this.buyingGroups, states: this.states, statuses: this.statuses, normalize: this.normalize, agg: this.agg, horizon: this.horizon, from: custom ? this.fromDate : "", to: custom ? this.toDate : "" };
   }
+  /** Date Range presets vs custom calendar. Switching to Custom seeds sensible dates (Jan 1 → today). */
+  setHorizon(h: string): void {
+    this.horizon = h;
+    if (h === "Custom") {
+      if (!this.fromDate) this.fromDate = this.today.slice(0, 4) + "-01-01";
+      if (!this.toDate) this.toDate = this.today;
+    }
+    this.rebuild();
+  }
+  onFrom(v: string): void { this.fromDate = v && v < this.minDate ? this.minDate : v; if (this.fromDate && this.toDate) this.rebuild(); }
+  onTo(v: string): void { this.toDate = v && v < this.minDate ? this.minDate : v; if (this.fromDate && this.toDate) this.rebuild(); }
   async rebuild(resetComp = false): Promise<void> {
     const f = this.filter();
     this.loading = true;
@@ -373,7 +395,7 @@ export class DashboardComponent implements OnInit {
 
   onParents(v: string[]): void { this.parents = v; this.subs = this.subs.filter((s) => this.subOptions.includes(s)); this.rebuild(); }
   setView(v: string): void { this.viewAs = v; this.parents = []; this.subs = []; this.rebuild(true); }
-  reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.rebuild(true); }
+  reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.fromDate = ""; this.toDate = ""; this.rebuild(true); }
   toggleSub(): void { this.subSvc.toggle(this.dashId); }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }
@@ -476,7 +498,8 @@ export class DashboardComponent implements OnInit {
     const ORANGE = "#F05622", GREY = "#8A8A8A";
     const company = this.viewAs === "admin" ? "All companies" : this.viewAs;
     const statuses = this.dataMode === "api" ? (this.statuses.join(", ") || "All statuses") : "Sample data";
-    const scope = [this.horizon, this.parents.length ? this.parents.join(", ") : "All categories", this.states.length ? this.states.join(", ") : "All states"].map((x) => this.esc(x)).join("   &middot;   ") + "   &middot;   Statuses: " + this.esc(statuses);
+    const range = this.horizon === "Custom" ? (this.fromDate + " to " + this.toDate) : this.horizon;
+    const scope = [range, this.parents.length ? this.parents.join(", ") : "All categories", this.states.length ? this.states.join(", ") : "All states"].map((x) => this.esc(x)).join("   &middot;   ") + "   &middot;   Statuses: " + this.esc(statuses);
     const date = new Date().toISOString().slice(0, 10);
     const kpiCard = (l: string, v: string, y: number) => `<div class="card"><div class="lbl">${l}</div><div class="big">${v}</div><div class="yoy" style="color:${y >= 0 ? "#1d9e75" : "#d85a30"}">${y >= 0 ? "+" : ""}${y}% YoY</div></div>`;
     const tbl = (cols: { t: string; r?: boolean }[], rows: any[][], meIdx?: (i: number) => boolean) => {
