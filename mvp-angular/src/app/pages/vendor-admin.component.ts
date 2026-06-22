@@ -1,4 +1,4 @@
-import { Component, inject } from "@angular/core";
+import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { RouterLink } from "@angular/router";
@@ -122,7 +122,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
     </div>
   `,
 })
-export class VendorAdminComponent {
+export class VendorAdminComponent implements OnInit {
   vs = inject(VendorAdminService);
   private data = inject(DataService);
   private an = inject(AnalyticsService);
@@ -145,6 +145,8 @@ export class VendorAdminComponent {
   showUser = false;
   uForm = this.blankUser();
   uQuery = "";
+
+  async ngOnInit(): Promise<void> { await this.vs.refresh(); }
 
   get companies(): Company[] { return this.vs.listCompanies(); }
   get sortedCompanies(): Company[] {
@@ -197,6 +199,6 @@ export class VendorAdminComponent {
 
   private blankUser() { return { firstName: "", lastName: "", email: "", companyName: "", brands: [] as string[], parents: [] as string[], subs: [] as string[], buyingGroups: [] as string[], states: [] as string[], perms: Object.fromEntries(USER_PERMISSIONS.map((p) => [p, true])) as Record<string, boolean> }; }
   openUser(): void { this.uForm = this.blankUser(); this.uQuery = ""; this.showUser = true; }
-  onCompany(): void { const c = this.vs.getCompany(this.uForm.companyName); if (c) { this.uForm.brands = [...c.brands]; this.uForm.perms = { ...c.perms }; } }
+  onCompany(): void { const c = this.vs.getCompany(this.uForm.companyName); if (c) { this.uForm.brands = [...c.brands]; this.uForm.perms = { ...c.perms }; this.uForm.parents = [...(c.parents || [])]; this.uForm.subs = [...(c.subs || [])]; this.uForm.states = [...(c.states || [])]; } }
   saveUser(): void { if (!this.validEmail || !this.uForm.companyName) return; this.vs.addUser({ ...this.uForm, createdBy: this.auth.session()?.email || "Admin" }); this.showUser = false; this.expanded = this.uForm.companyName; }
 }

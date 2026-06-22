@@ -1,12 +1,22 @@
-import { Injectable } from "@angular/core";
+import { Injectable, inject } from "@angular/core";
+import { HttpClient } from "@angular/common/http";
+import { firstValueFrom } from "rxjs";
 import { VENDORS } from "./data.service";
 import { DASHBOARDS } from "./models";
 import { VENDOR_CONTACTS as CONTACTS, LEGRAND_BRANDS, LEGRAND_CONTACTS, Contact } from "./contacts";
+import { AuthService } from "./auth.service";
+import { DATA_MODE, API_BASE_URL } from "./app-config";
 
 export type SubStatus = "active" | "expired" | "scheduled" | "none" | "suspended";
 export const USER_PERMISSIONS = ["Brands", "Buying Group", "Parent Category", "Subcategory", "Proposal Status", "Supplier", "Aggregation", "Date Range", "Export CSV", "Pull reports"];
 
-export interface Company { name: string; brands: string[]; perms: Record<string, boolean>; start: string; end: string; }
+export interface Company {
+  name: string; brands: string[]; perms: Record<string, boolean>;
+  parents: string[];        // company DEFAULT parent-category restriction; [] == all
+  subs: string[];           // company DEFAULT sub-category restriction; [] == all
+  states: string[];         // company DEFAULT state restriction; [] == all
+  start: string; end: string;
+}
 export interface VUser {
   email: string; firstName: string; lastName: string; name: string; companyName: string;
   brands: string[]; perms: Record<string, boolean>; suspended: boolean;
@@ -20,7 +30,7 @@ export interface VUser {
 }
 
 interface AdminState { companies: Company[]; users: VUser[]; logos: Record<string, string>; }
-const LS = "pvi_vendor_admin_v6";
+const LS = "pvi_vendor_admin_v7";
 const iso = (o: number) => new Date(Date.now() + o * 86_400_000).toISOString().slice(0, 10);
 const allPerms = () => Object.fromEntries(USER_PERMISSIONS.map((p) => [p, true])) as Record<string, boolean>;
 const title = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -29,7 +39,43 @@ const DEFAULT_SUBS = DASHBOARDS.slice(0, 2).map((d) => d.id);
 
 @Injectable({ providedIn: "root" })
 export class VendorAdminService {
+  private http = inject(HttpClient);
+  private auth = inject(AuthService);
   private state: AdminState = this.load();
+  private syncTimer: ReturnType<typeof setTimeout> | null = null;
+  storeError = "";
+
+  constructor() { if (DATA_MODE === "api") void this.refresh(); }
+
+  /** Pull the authoritative dataset from the server (admins only). Admin pages await this on load.
+   *  Falls back silently to the local cache/seed when offline or not configured. */
+  async refresh(): Promise<void> {
+    if (DATA_MODE !== "api") return;
+    const t = this.auth.token();
+    if (!t || this.auth.session()?.role !== "admin") return;
+    try {
+      const data = await firstValueFrom(this.http.get<AdminState>(API_BASE_URL + "/api/admin-vendors", { headers: { Authorization: "Bearer " + t } }));
+      if (data && Array.isArray(data.companies) && Array.isArray(data.users)) {
+        this.state = { companies: data.companies, users: data.users, logos: data.logos || {} };
+        try { localStorage.setItem(LS, JSON.stringify(this.state)); } catch { /* ignore */ }
+        this.storeError = "";
+      }
+    } catch (e: any) {
+      this.storeError = "Couldn't load the vendor store: " + ((e && e.message) || e);
+    }
+  }
+
+  /** Push the whole dataset to the server (admins only, debounced). Called by persist(). */
+  private sync(): void {
+    if (DATA_MODE !== "api") return;
+    const t = this.auth.token();
+    if (!t || this.auth.session()?.role !== "admin") return;
+    if (this.syncTimer) clearTimeout(this.syncTimer);
+    this.syncTimer = setTimeout(() => {
+      this.http.put(API_BASE_URL + "/api/admin-vendors", this.state, { headers: { Authorization: "Bearer " + t } })
+        .subscribe({ error: (e) => { this.storeError = "Couldn't save to the vendor store: " + ((e && e.message) || e); } });
+    }, 350);
+  }
 
   private load(): AdminState {
     try { const r = localStorage.getItem(LS); if (r) return JSON.parse(r) as AdminState; } catch { /* ignore */ }
@@ -39,11 +85,11 @@ export class VendorAdminService {
   }
   private seed(): AdminState {
     const companies: Company[] = VENDORS.map((v) =>
-      v.id === "klipsch" ? { name: v.name, brands: [v.name], perms: allPerms(), start: iso(-400), end: iso(-30) }
-      : v.id === "luma" ? { name: v.name, brands: [v.name], perms: allPerms(), start: iso(30), end: iso(400) }
-      : { name: v.name, brands: [v.name], perms: allPerms(), start: iso(-180), end: iso(180) },
+      v.id === "klipsch" ? { name: v.name, brands: [v.name], perms: allPerms(), parents: [], subs: [], states: [], start: iso(-400), end: iso(-30) }
+      : v.id === "luma" ? { name: v.name, brands: [v.name], perms: allPerms(), parents: [], subs: [], states: [], start: iso(30), end: iso(400) }
+      : { name: v.name, brands: [v.name], perms: allPerms(), parents: [], subs: [], states: [], start: iso(-180), end: iso(180) },
     );
-    companies.push({ name: "Legrand", brands: [...LEGRAND_BRANDS], perms: allPerms(), start: iso(-150), end: iso(210) });
+    companies.push({ name: "Legrand", brands: [...LEGRAND_BRANDS], perms: allPerms(), parents: [], subs: [], states: [], start: iso(-150), end: iso(210) });
 
     const users: VUser[] = [];
     for (const v of VENDORS) {
@@ -63,20 +109,23 @@ export class VendorAdminService {
       createdBy: "Portal (seed)",
     };
   }
-  private persist(s = this.state): void { try { localStorage.setItem(LS, JSON.stringify(s)); } catch { /* ignore */ } }
+  private persist(s = this.state): void { try { localStorage.setItem(LS, JSON.stringify(s)); } catch { /* ignore */ } this.sync(); }
 
   /* companies */
   listCompanies(): Company[] { return this.state.companies; }
   getCompany(name: string): Company | undefined { return this.state.companies.find((c) => c.name === name); }
-  addCompany(c: { name: string; brands: string[]; perms: Record<string, boolean> }): void {
+  addCompany(c: { name: string; brands: string[]; perms: Record<string, boolean>; parents?: string[]; subs?: string[]; states?: string[] }): void {
     if (!c.name.trim() || this.getCompany(c.name.trim())) return;
-    this.state.companies.push({ name: c.name.trim(), brands: c.brands, perms: c.perms, start: iso(0), end: iso(365) });
+    this.state.companies.push({ name: c.name.trim(), brands: c.brands, perms: c.perms, parents: c.parents || [], subs: c.subs || [], states: c.states || [], start: iso(0), end: iso(365) });
     this.persist();
   }
-  updateCompany(name: string, patch: { brands?: string[]; perms?: Record<string, boolean> }): void {
+  updateCompany(name: string, patch: { brands?: string[]; perms?: Record<string, boolean>; parents?: string[]; subs?: string[]; states?: string[] }): void {
     const c = this.getCompany(name); if (!c) return;
     if (patch.brands) c.brands = patch.brands;
     if (patch.perms) c.perms = patch.perms;
+    if (patch.parents) c.parents = patch.parents;
+    if (patch.subs) c.subs = patch.subs;
+    if (patch.states) c.states = patch.states;
     this.persist();
   }
   deleteCompany(name: string): void {

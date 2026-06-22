@@ -87,9 +87,10 @@ function xpool() {
 function resolveTenant(claims, req) {
   if (claims.role === "admin") {
     const q = req.query && req.query.brand ? String(req.query.brand) : "";
-    return { brand: q && q !== "admin" ? q : "Sonos", allowedParents: [] };
+    return { brand: q && q !== "admin" ? q : "Sonos", allowedParents: [], allowedSubs: [], allowedStates: [] };
   }
-  return { brand: claims.brand, allowedParents: Array.isArray(claims.allowedParents) ? claims.allowedParents : [] };
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  return { brand: claims.brand, allowedParents: arr(claims.allowedParents), allowedSubs: arr(claims.allowedSubs), allowedStates: arr(claims.allowedStates) };
 }
 
 function reqFilters(req) {
@@ -107,12 +108,15 @@ function baseFilter(t, f) {
     if (list && list.length) { vals.push(list); where.push(`${col} = ANY($${vals.length})`); }
   };
   add("parentcat", f.parents, t.allowedParents);
-  add("subcat", f.subs, null);
-  add("state", f.states, null);
+  add("subcat", f.subs, t.allowedSubs);
+  add("state", f.states, t.allowedStates);
   add("status", f.statuses, null); // empty = all statuses (unfiltered)
   return { where: where.join(" AND "), vals };
 }
 
+// Governance floor: if the tenant has an allow-list, restrict the client's selection to it (and
+// default to the whole allow-list when nothing is selected). Empty allow-list = no restriction.
+const effList = (sel, allowed) => (allowed && allowed.length ? (sel && sel.length ? sel.filter((x) => allowed.includes(x)) : allowed) : (sel || []));
 const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v));
 const yoy = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : 0);
 const pkey = (v) => (v instanceof Date ? v.toISOString() : String(v));
@@ -256,6 +260,13 @@ module.exports = async (req, res) => {
     //     (ignore the status selector): Submitted = pipeline by submitted date; Accepted = closed-won
     //     by accepteddate. All run on the short-timeout pool and are fault-isolated — a failure here
     //     leaves these sections empty rather than breaking the core dashboard.
+    // Governance also applies to the competitive/proposal "extras": floor the client filters to the
+    // tenant's allowed categories/subs/states so a restricted vendor can't see beyond them here either.
+    // (The main aggregates above already used the governed baseFilter.)
+    f.parents = effList(f.parents, tenant.allowedParents);
+    f.subs = effList(f.subs, tenant.allowedSubs);
+    f.states = effList(f.states, tenant.allowedStates);
+
     let won = [], lost = [], submitted = [], accepted = [];
     try {
       const xp = xpool();

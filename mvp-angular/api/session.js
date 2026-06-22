@@ -1,17 +1,27 @@
 /**
- * /api/session — MVP login. Validates demo credentials SERVER-SIDE and issues a signed token
- * carrying the user's role, brand, and allowed categories. The data endpoints verify that token
- * and enforce scope from its claims, so the browser can't grant itself access.
+ * /api/session — MVP login. Validates credentials SERVER-SIDE and issues a signed token carrying
+ * the user's role, brand, and effective category/sub/state restrictions. The data endpoints verify
+ * that token and enforce scope from its claims, so the browser can't grant itself access.
  *
- * MVP SEED: the demo identities below mirror the front-end demo accounts (all password "demo",
- * allowedParents [] = all categories). Production replaces this endpoint + seed with real SSO and
- * the real user store. Requires the AUTH_SECRET env var (the signing key) to be set.
+ * Identity sources:
+ *   - ADMINS: external admin allowlist (stands in for admin.portal.io / SSO). Full visibility.
+ *   - Vendor users: the Postgres vendor store (lib/db.js), managed in the admin UI. Their effective
+ *     restriction (user override -> company default -> all) is baked into the token at login.
+ *   - Fallback: if the store isn't configured/seeded yet, the legacy 10-vendor map still logs in
+ *     (all categories), so the demo never hard-breaks.
+ *
+ * MVP credential model: a single shared password ("demo") — there is no per-user secret yet.
+ * Production replaces this endpoint with real SSO + the real user store; the verify+enforce shape
+ * downstream stays identical. Requires AUTH_SECRET (signing key).
  */
 const { sign } = require("../lib/auth");
+const db = require("../lib/db");
 
 const DEMO_PASSWORD = "demo";
 const ADMINS = ["lee@portal.io", "admin@portal.io"];
-const VENDOR_USERS = {
+
+// Legacy fallback (used only if the vendor store is unconfigured or a lookup fails): email -> brand.
+const LEGACY_VENDORS = {
   "casey.clemens@sonos.com": "Sonos",
   "rburnish@lutron.com": "Lutron",
   "kathleen.thomas@sony.com": "Sony Professional",
@@ -45,10 +55,30 @@ module.exports = async (req, res) => {
     const e = String(email || "").trim().toLowerCase();
     if (password !== DEMO_PASSWORD) return res.status(401).json({ error: "Invalid email or password." });
 
-    let claims;
-    if (ADMINS.includes(e)) claims = { email: e, role: "admin", brand: "", allowedParents: [] };
-    else if (VENDOR_USERS[e]) claims = { email: e, role: "vendor", brand: VENDOR_USERS[e], allowedParents: [] };
-    else return res.status(401).json({ error: "Invalid email or password." });
+    let claims = null;
+
+    if (ADMINS.includes(e)) {
+      claims = { email: e, role: "admin", brand: "", allowedParents: [], allowedSubs: [], allowedStates: [] };
+    } else {
+      // Preferred path: the vendor store (carries effective restrictions).
+      if (db.isConfigured()) {
+        try {
+          const found = await db.getUserForLogin(e);
+          if (found) {
+            const eff = db.effective(found.user, found.company);
+            claims = { email: e, role: "vendor", brand: eff.brand, allowedParents: eff.allowedParents, allowedSubs: eff.allowedSubs, allowedStates: eff.allowedStates };
+          }
+        } catch (err) {
+          console.error("session: vendor store lookup failed, trying legacy:", (err && err.message) || err);
+        }
+      }
+      // Fallback: legacy 10-vendor map (all categories).
+      if (!claims && LEGACY_VENDORS[e]) {
+        claims = { email: e, role: "vendor", brand: LEGACY_VENDORS[e], allowedParents: [], allowedSubs: [], allowedStates: [] };
+      }
+    }
+
+    if (!claims) return res.status(401).json({ error: "Invalid email or password." });
 
     claims.exp = Math.floor(Date.now() / 1000) + 60 * 60 * 12; // 12h
     const token = sign(claims, process.env.AUTH_SECRET);

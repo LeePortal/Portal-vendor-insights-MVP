@@ -6,11 +6,12 @@ import { VendorAdminService, USER_PERMISSIONS, Company, VUser } from "../core/ve
 import { DataService } from "../core/data.service";
 import { AnalyticsService } from "../core/analytics.service";
 import { ActivityService } from "../core/activity.service";
+import { MultiSelectComponent } from "../components/multiselect.component";
 
 @Component({
   selector: "app-vendor-landing",
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, MultiSelectComponent],
   template: `
     <a routerLink="/admin/vendors" class="muted" style="font-size:12px">&larr; Back to Vendors</a>
     <div *ngIf="!company" class="pcard" style="margin-top:12px"><div class="bd muted">Company not found.</div></div>
@@ -47,6 +48,7 @@ import { ActivityService } from "../core/activity.service";
             <div style="border-top:1px solid var(--border);margin:14px 0"></div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Default brands <span class="muted">— auto-applied to new users; use “Edit company” to change</span></div>
             <div class="chips"><span class="chip on" *ngFor="let b of c.brands">{{ b }}</span><span *ngIf="!c.brands.length" class="muted" style="font-size:12px">None set.</span></div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:10px">Default category access: <b>{{ c.parents.length ? c.parents.join(', ') : 'All categories' }}</b><span *ngIf="c.subs.length"> · subs: {{ c.subs.join(', ') }}</span><span *ngIf="c.states.length"> · states: {{ c.states.join(', ') }}</span></div>
           </div>
         </div>
 
@@ -77,6 +79,12 @@ import { ActivityService } from "../core/activity.service";
           <input class="minput" style="width:100%;margin-bottom:6px" placeholder="Type to search brands…" [(ngModel)]="cQuery" />
           <div class="suggest" *ngIf="cSuggest.length"><div class="sg" *ngFor="let b of cSuggest" (click)="addBrand(b); cQuery=''">{{ b }}</div></div>
           <div class="chips" style="margin:6px 0 12px"><span class="chip on" *ngFor="let b of cForm.brands" (click)="removeBrand(b)">{{ b }} ✕</span></div>
+          <div style="font-size:12px;font-weight:700;margin:6px 0 4px">Default data access <span class="muted" style="font-weight:400">— inherited by new users; empty = all</span></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <app-multiselect label="Parent categories" allLabel="All categories" [options]="parentOptions" [selected]="cForm.parents" (selectedChange)="cForm.parents=$event"></app-multiselect>
+            <app-multiselect label="Sub-categories" allLabel="All sub-categories" [options]="subOptions(cForm.parents)" [selected]="cForm.subs" (selectedChange)="cForm.subs=$event"></app-multiselect>
+            <app-multiselect label="States" allLabel="All states" [options]="stateOptions" [selected]="cForm.states" (selectedChange)="cForm.states=$event"></app-multiselect>
+          </div>
           <div style="font-size:12px;font-weight:700;margin-bottom:2px">Default permissions</div>
           <div style="margin-bottom:14px"><div class="perm-row" *ngFor="let p of permKeys"><span>{{ p }}</span><label class="switch"><input type="checkbox" [checked]="cForm.perms[p]" (change)="cForm.perms[p]=!cForm.perms[p]" /><span class="track"></span></label></div></div>
           <div style="display:flex;justify-content:flex-end;gap:8px"><button class="pbtn" (click)="showEdit=false">Cancel</button><button class="pbtn primary" (click)="saveEdit()">Save changes</button></div>
@@ -103,16 +111,19 @@ export class VendorLandingComponent implements OnInit {
 
   permKeys = USER_PERMISSIONS;
   catalog = this.an.brandList;
+  parentOptions = this.an.parentCats;
+  stateOptions = this.an.states;
   company: Company | undefined;
   users: VUser[] = [];
   logins: Record<string, { count: number; last: number }> = {};
 
   showEdit = false;
   askDelete = false;
-  cForm: { brands: string[]; perms: Record<string, boolean> } = { brands: [], perms: {} };
+  cForm: { brands: string[]; perms: Record<string, boolean>; parents: string[]; subs: string[]; states: string[] } = { brands: [], perms: {}, parents: [], subs: [], states: [] };
   cQuery = "";
 
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
+    await this.vs.refresh();
     const name = this.route.snapshot.paramMap.get("name") || "";
     this.company = this.vs.getCompany(name);
     if (this.company) {
@@ -123,6 +134,7 @@ export class VendorLandingComponent implements OnInit {
 
   get status(): string { return this.company ? this.vs.companyStatus(this.company.name) : "none"; }
   get cSuggest(): string[] { const q = this.cQuery.toLowerCase().trim(); return q ? this.catalog.filter((b) => b.toLowerCase().startsWith(q) && !this.cForm.brands.includes(b)).slice(0, 6) : []; }
+  subOptions(parents: string[]): string[] { return parents.length ? this.an.subsForParents(parents) : []; }
 
   onStart(ev: Event): void { if (this.company) this.vs.setCompanySub(this.company.name, (ev.target as HTMLInputElement).value, this.company.end); }
   onEnd(ev: Event): void { if (this.company) this.vs.setCompanySub(this.company.name, this.company.start, (ev.target as HTMLInputElement).value); }
@@ -137,9 +149,9 @@ export class VendorLandingComponent implements OnInit {
     reader.readAsDataURL(file);
   }
 
-  openEdit(): void { if (this.company) { this.cForm = { brands: [...this.company.brands], perms: { ...this.company.perms } }; this.cQuery = ""; this.showEdit = true; } }
+  openEdit(): void { if (this.company) { this.cForm = { brands: [...this.company.brands], perms: { ...this.company.perms }, parents: [...(this.company.parents || [])], subs: [...(this.company.subs || [])], states: [...(this.company.states || [])] }; this.cQuery = ""; this.showEdit = true; } }
   addBrand(b: string): void { if (!this.cForm.brands.includes(b)) this.cForm.brands.push(b); }
   removeBrand(b: string): void { const i = this.cForm.brands.indexOf(b); if (i >= 0) this.cForm.brands.splice(i, 1); }
-  saveEdit(): void { if (this.company) { this.vs.updateCompany(this.company.name, { brands: this.cForm.brands, perms: this.cForm.perms }); this.company = this.vs.getCompany(this.company.name); this.showEdit = false; } }
+  saveEdit(): void { if (this.company) { this.vs.updateCompany(this.company.name, { brands: this.cForm.brands, perms: this.cForm.perms, parents: this.cForm.parents, subs: this.cForm.subs, states: this.cForm.states }); this.company = this.vs.getCompany(this.company.name); this.showEdit = false; } }
   confirmDelete(): void { if (this.company) { const n = this.company.name; this.vs.deleteCompany(n); this.router.navigate(["/admin/vendors"]); } }
 }
