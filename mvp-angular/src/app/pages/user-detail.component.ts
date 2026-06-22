@@ -1,4 +1,4 @@
-import { Component, inject } from "@angular/core";
+import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { ActivatedRoute, Router, RouterLink } from "@angular/router";
@@ -19,6 +19,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
   imports: [CommonModule, FormsModule, RouterLink, MultiSelectComponent],
   template: `
     <a routerLink="/admin/vendors" class="muted" style="font-size:12px">&larr; Back to Vendors</a>
+    <div *ngIf="storeError" class="pcard" style="margin-top:10px;border:1px solid var(--negative)"><div class="bd" style="color:var(--negative);font-size:12px"><b>Vendor store not connected.</b> Changes are only cached in this browser and will NOT be applied to vendor logins. {{ storeError }}</div></div>
     <div *ngIf="!user" class="pcard" style="margin-top:12px"><div class="bd muted">User not found.</div></div>
 
     <ng-container *ngIf="user as u">
@@ -69,10 +70,9 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Permissions</div>
             <div class="chips" style="margin-bottom:14px"><span class="chip" [class.on]="edit.perms[p]" *ngFor="let p of perms" (click)="edit.perms[p]=!edit.perms[p]" style="cursor:pointer">{{ p }}</span></div>
 
-            <div style="display:flex;align-items:center;gap:10px">
-              <button class="pbtn primary" (click)="save()">Save access</button>
-              <span *ngIf="saved" style="color:var(--positive);font-size:12px">Saved.</span>
-            </div>
+            <div style="border-top:1px solid var(--border);margin:18px 0 12px"></div>
+            <button class="pbtn primary" style="width:100%;padding:12px;font-size:14px;font-weight:700;letter-spacing:.2px" (click)="save()">Save access changes</button>
+            <div *ngIf="saved" style="color:var(--positive);font-size:12px;margin-top:8px;text-align:center;font-weight:600">&#10003; Access saved &mdash; applies on this user's next login</div>
           </div>
         </div>
 
@@ -97,7 +97,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
     </ng-container>
   `,
 })
-export class UserDetailComponent {
+export class UserDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private va = inject(VendorAdminService);
@@ -134,6 +134,14 @@ export class UserDetailComponent {
       perms: u ? { ...u.perms } : {} as Record<string, boolean>,
     };
   }
+
+  async ngOnInit(): Promise<void> {
+    await this.va.refresh();
+    this.user = this.va.getUser(this.email);
+    this.perms = this.user ? Object.keys(this.user.perms) : this.perms;
+    this.edit = this.snapshot();
+  }
+  get storeError(): string { return this.va.storeError; }
 
   get downloads() { return this.dl.downloadsFor(this.email); }
   get subOptions(): string[] { return this.edit.parents.length ? this.an.subsForParents(this.edit.parents) : []; }

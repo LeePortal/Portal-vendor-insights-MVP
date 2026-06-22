@@ -15,7 +15,15 @@
  */
 const { buildSeed } = require("./seed-data");
 
-const CONN = process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL || "";
+const RAW_CONN = process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL || "";
+// Supabase ships `sslmode=require`, which makes node-postgres verify the server cert and fail with
+// "self-signed certificate in certificate chain". Force `sslmode=no-verify` so the connection still
+// uses TLS but skips chain verification (standard + safe for a managed Postgres provider).
+function noVerify(s) {
+  if (!s) return s;
+  return /sslmode=/i.test(s) ? s.replace(/sslmode=[^&\s]*/i, "sslmode=no-verify") : s + (s.includes("?") ? "&" : "?") + "sslmode=no-verify";
+}
+const CONN = noVerify(RAW_CONN);
 
 let _pool = null;
 function pool() {
