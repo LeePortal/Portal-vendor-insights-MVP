@@ -29,11 +29,16 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
         <button class="pbtn" [class.primary]="subscribed" (click)="toggleSub()">{{ subscribed ? "Subscribed" : "Subscribe" }}</button>
         <button class="pbtn" [disabled]="csvBusy" (click)="exportCsv()">{{ csvBusy ? "Preparing…" : "⬇ Export CSV" }}</button>
         <button class="pbtn" [disabled]="pdfBusy" (click)="pull()">{{ pdfBusy ? "Preparing…" : "Pull report" }}</button>
-        <button *ngIf="isAdmin" class="pbtn dark" (click)="publish()">Publish to company…</button>
       </div>
     </div>
 
     <div class="filterbar" style="align-items:flex-end">
+      <div class="filt"><label>Brand <span class="muted" style="font-weight:400">— focus one for competitive widgets</span></label>
+        <select class="minput" [value]="viewAs" (change)="setBrand($any($event.target).value)">
+          <option value="admin">All brands</option>
+          <option *ngFor="let b of allBrands" [value]="b">{{ b }}</option>
+        </select>
+      </div>
       <div class="filt"><label>Aggregation</label>
         <div class="tgl">
           <button *ngFor="let a of aggs" [class.on]="agg === a" (click)="agg = a; rebuild()">{{ a | titlecase }}</button>
@@ -80,7 +85,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div class="dash-body" [class.updating]="loading">
 
     <div class="grid c4" style="margin-bottom:16px">
-      <div class="pcard kpi"><div class="label">{{ isAdmin ? 'Revenue' : 'Brand Revenue' }}</div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
+      <div class="pcard kpi"><div class="label">{{ viewAs === 'admin' ? 'Revenue' : 'Brand Revenue' }}</div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
       <div class="pcard kpi"><div class="label">Units Sold</div><div class="value">{{ num(kpis.units) }}</div><div class="delta" [style.color]="dcol(kpis.unitsYoY)">{{ yoyStr(kpis.unitsYoY) }} YoY</div></div>
       <div class="pcard kpi"><div class="label">Number of Proposals</div><div class="value">{{ num(kpis.proposals) }}</div><div class="delta" [style.color]="dcol(kpis.proposalsYoY)">{{ yoyStr(kpis.proposalsYoY) }} YoY</div></div>
       <div class="pcard kpi"><div class="label">Active Dealers</div><div class="value">{{ num(kpis.dealers) }}</div><div class="delta" [style.color]="dcol(kpis.dealersYoY)">{{ yoyStr(kpis.dealersYoY) }} YoY</div></div>
@@ -125,7 +130,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div class="hd"><div class="t">Category Share by Item</div><div class="s">Every SKU matching the filters ({{ itemRows.length }})</div></div>
       <div class="bd" style="max-height:420px;overflow:auto">
         <table class="ptbl">
-          <thead><tr><th>#</th><th>Brand</th><th>Model</th><th>Description</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Avg Sell $</th></tr></thead>
+          <thead><tr><th>#</th><th>Brand</th><th>Model</th><th>Category</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Avg Sell $</th></tr></thead>
           <tbody>
             <tr *ngFor="let r of itemRows; let i = index" [style.background]="r.brand === viewAs ? 'var(--accent-soft)' : ''">
               <td class="muted">{{ i + 1 }}</td><td style="font-weight:600">{{ r.brand }}</td><td>{{ r.model }}</td><td class="muted">{{ r.desc }}</td>
@@ -152,7 +157,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <div class="grid c2" *ngIf="submitted.length">
       <div class="pcard span2" *ngFor="let w of submitted">
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
-        <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="viewAs" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
+        <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
     </div>
 
@@ -160,14 +165,14 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <div class="grid c2" *ngIf="accepted.length">
       <div class="pcard span2" *ngFor="let w of accepted">
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
-        <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="viewAs" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
+        <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
     </div>
 
     <h2 *ngIf="won.length || lost.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
     <div class="grid c2" style="align-items:start" *ngIf="won.length || lost.length">
       <div class="pcard">
-        <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><div class="s">Line items where {{ viewAs === 'admin' ? 'the brand' : viewAs }} replaced a competitor</div></div>
+        <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><div class="s">Line items where {{ focusBrand }} replaced a competitor</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
           <table class="ptbl">
             <thead><tr><th>Model</th><th>Sub-category</th><th class="num"># Units won</th><th class="num">$ won</th><th class="num">Competitors beaten</th></tr></thead>
@@ -250,6 +255,7 @@ export class DashboardComponent implements OnInit {
   restrictParents: string[] = [];
 
   viewAs = "admin";
+  ownBrand = "";   // the vendor's own brand (locked target for their competitive widgets)
   agg = "monthly";
   horizon = "YTD";
   fromDate = "";
@@ -294,6 +300,7 @@ export class DashboardComponent implements OnInit {
     this.title = (DASHBOARDS.find((d) => d.id === id)?.name || "Brand Performance Overview");
     if (!this.isAdmin) {
       this.viewAs = this.data.getVendor(this.session.vendorId || "")?.name || this.allBrands[0];
+      this.ownBrand = this.viewAs;
       this.restrictParents = this.session.allowedParents ?? this.va.getUser(this.session.email)?.parents ?? [];
     }
     this.selectAllCats();
@@ -301,6 +308,8 @@ export class DashboardComponent implements OnInit {
   }
 
   get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents, this.dataMode === "api"); }
+  /** Brand the per-brand widgets (displacement / funnel brand line) represent: focal for admins, own brand for vendors. */
+  get focusBrand(): string { return this.isAdmin ? this.viewAs : this.ownBrand; }
   get subOptions(): string[] { return this.parents.length ? this.an.subsForParents(this.parents) : []; }
 
   /** Pre-select every category/sub-category the user is allowed to see (so nothing looks hidden). */
@@ -396,6 +405,7 @@ export class DashboardComponent implements OnInit {
   }
 
   onParents(v: string[]): void { this.parents = v; this.subs = [...this.subOptions]; this.rebuild(); }
+  setBrand(v: string): void { this.viewAs = v; this.rebuild(true); }
   reset(): void { this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.fromDate = ""; this.toDate = ""; this.selectAllCats(); this.rebuild(true); }
   toggleSub(): void { this.subSvc.toggle(this.dashId); }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }

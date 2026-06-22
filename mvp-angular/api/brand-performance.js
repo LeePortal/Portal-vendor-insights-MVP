@@ -85,13 +85,16 @@ function xpool() {
 // Tenant is derived from the VERIFIED token claims (never client input). Vendors are locked to
 // their own brand + allowed categories; admins may view any brand via the ?brand= param.
 function resolveTenant(claims, req) {
+  const q = req.query && req.query.brand ? String(req.query.brand) : "";
+  const focal = q && q !== "admin" ? q : ""; // selected focal brand; "" = all filtered brands
   if (claims.role === "admin") {
-    const q = req.query && req.query.brand ? String(req.query.brand) : "";
-    // Admin is market-wide: a specific ?brand= scopes to it; otherwise "" = all filtered brands.
-    return { brand: q && q !== "admin" ? q : "", allowedParents: [], allowedSubs: [], allowedStates: [] };
+    // Admin: KPIs/share follow the focal brand (or all); displacement follows the focal brand too.
+    return { brand: focal, ownBrand: "", allowedParents: [], allowedSubs: [], allowedStates: [] };
   }
   const arr = (v) => (Array.isArray(v) ? v : []);
-  return { brand: claims.brand, allowedParents: arr(claims.allowedParents), allowedSubs: arr(claims.allowedSubs), allowedStates: arr(claims.allowedStates) };
+  // Vendor: KPIs/share may focus ANY brand (focal), but the category scope and the per-brand
+  // displacement/funnel stay locked to the vendor's OWN brand (competitive detail can't follow focal).
+  return { brand: focal, ownBrand: claims.brand, allowedParents: arr(claims.allowedParents), allowedSubs: arr(claims.allowedSubs), allowedStates: arr(claims.allowedStates) };
 }
 
 function reqFilters(req) {
@@ -273,9 +276,11 @@ module.exports = async (req, res) => {
     f.subs = effList(f.subs, tenant.allowedSubs);
     f.states = effList(f.states, tenant.allowedStates);
 
+    const dispBrand = tenant.ownBrand || tenant.brand; // vendor: own brand (locked); admin: focal brand
     let won = [], lost = [], submitted = [], accepted = [];
-    // Competitive displacement & proposal funnel are per-brand; skip for an admin all-brands view.
-    if (tenant.brand) try {
+    // Per-brand widgets follow the focal brand for admins but stay locked to the vendor's own brand;
+    // skipped entirely for an admin all-brands view (no focal brand).
+    if (dispBrand) try {
       const xp = xpool();
       // filter clause builder. alias '' = no prefix; withStatus only for displacement.
       const flt = (alias, start, withStatus) => {
@@ -299,18 +304,18 @@ module.exports = async (req, res) => {
              FROM ${FACT} b JOIN ${FACT} a ON a.proposalid=b.proposalid AND a.area=b.area AND a.parentcat=b.parentcat AND a.deleted=true AND a.brand<>b.brand
              WHERE b.brand=$1 AND b.deleted=false${wB.clause}${swapWin("b")} GROUP BY b.proposalitemid, b.model, b.subcat)
            SELECT model, MAX(subcat) AS subcat, SUM(qty) AS units, SUM(sell) AS sales, SUM(comps) AS competitors_beaten FROM wi GROUP BY model ORDER BY units DESC LIMIT 12`,
-          [tenant.brand, ...wB.vals]),
+          [dispBrand, ...wB.vals]),
         xp.query(
           `WITH li AS (SELECT a.proposalitemid, a.model, a.parentcat, MAX(a.quantity) AS qty, MAX(a.total_sell) AS sell
              FROM ${FACT} a JOIN ${FACT} b ON a.proposalid=b.proposalid AND a.area=b.area AND a.parentcat=b.parentcat AND b.deleted=false AND b.brand<>a.brand
              WHERE a.brand=$1 AND a.deleted=true${lA.clause}${swapWin("a")} GROUP BY a.proposalitemid, a.model, a.parentcat)
            SELECT model, MAX(parentcat) AS subcat, SUM(qty) AS lost_units, SUM(sell) AS lost_sales FROM li GROUP BY model ORDER BY lost_units DESC LIMIT 12`,
-          [tenant.brand, ...lA.vals]),
+          [dispBrand, ...lA.vals]),
         xp.query(
           `SELECT a.model AS lost_model, b.brand AS disp_brand, b.model AS disp_model, SUM(b.quantity) AS units
            FROM ${FACT} a JOIN ${FACT} b ON a.proposalid=b.proposalid AND a.area=b.area AND a.parentcat=b.parentcat AND b.deleted=false AND b.brand<>a.brand
            WHERE a.brand=$1 AND a.deleted=true${dA.clause}${swapWin("a")} GROUP BY a.model, b.brand, b.model`,
-          [tenant.brand, ...dA.vals]),
+          [dispBrand, ...dA.vals]),
         xp.query(
           `SELECT DATE_TRUNC('${u}', submitted) AS period, SUM(total_sell) AS cat_value,
                   SUM(CASE WHEN brand=$1 THEN total_sell ELSE 0 END) AS brand_value,
@@ -318,7 +323,7 @@ module.exports = async (req, res) => {
                   COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
            FROM ${FACT} WHERE deleted=false AND submitted IS NOT NULL${subWin}${sF.clause}
            GROUP BY DATE_TRUNC('${u}', submitted) ORDER BY period`,
-          [tenant.brand, ...sF.vals]),
+          [dispBrand, ...sF.vals]),
         xp.query(
           `SELECT DATE_TRUNC('${u}', submitted) AS period, COUNT(DISTINCT proposalid) AS all_props
            FROM ${FACT} WHERE deleted=false AND submitted IS NOT NULL${subWin}${stCol}
@@ -331,7 +336,7 @@ module.exports = async (req, res) => {
                   COUNT(DISTINCT CASE WHEN brand=$1 THEN proposalid END) AS brand_props
            FROM ${FACT} WHERE deleted=false AND accepteddate IS NOT NULL AND closed_won_flag=true${accWin}${aF.clause}
            GROUP BY DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) ORDER BY period`,
-          [tenant.brand, ...aF.vals]),
+          [dispBrand, ...aF.vals]),
         xp.query(
           `SELECT DATE_TRUNC('${u}', CAST(accepteddate AS DATE)) AS period, COUNT(DISTINCT proposalid) AS all_props
            FROM ${FACT} WHERE deleted=false AND accepteddate IS NOT NULL AND closed_won_flag=true${accWin}${stCol}
@@ -339,7 +344,7 @@ module.exports = async (req, res) => {
           stVals),
       ]);
 
-      won = wonRes.rows.map((r) => ({ model: r.model, desc: r.subcat || "", brand: tenant.brand, units: num(r.units), sales: num(r.sales), competitorsBeaten: num(r.competitors_beaten) }));
+      won = wonRes.rows.map((r) => ({ model: r.model, desc: r.subcat || "", brand: dispBrand, units: num(r.units), sales: num(r.sales), competitorsBeaten: num(r.competitors_beaten) }));
       const dispBy = new Map();
       for (const r of dispRes.rows) { if (!dispBy.has(r.lost_model)) dispBy.set(r.lost_model, []); dispBy.get(r.lost_model).push({ brand: r.disp_brand, model: r.disp_model, units: num(r.units) }); }
       lost = lostRes.rows.map((r) => ({ model: r.model, subcat: r.subcat || "", lostUnits: num(r.lost_units), lostSales: num(r.lost_sales), displacers: (dispBy.get(r.model) || []).sort((x, y) => y.units - x.units).slice(0, 6) }));
