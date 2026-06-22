@@ -303,15 +303,24 @@ export class DashboardComponent implements OnInit {
       const v = this.route.snapshot.queryParamMap.get("view");
       if (v) this.viewAs = this.data.getVendor(v)?.name || "admin";
     }
+    this.selectAllCats();
     this.rebuild(true);
   }
 
   get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents); }
   get subOptions(): string[] { return this.parents.length ? this.an.subsForParents(this.parents) : []; }
 
+  /** Pre-select every category/sub-category the user is allowed to see (so nothing looks hidden). */
+  private selectAllCats(): void { this.parents = [...this.parentOptions]; this.subs = [...this.subOptions]; }
+
   private filter(): AFilter {
     const custom = this.horizon === "Custom";
-    return { brand: this.viewAs, parents: this.parents, subs: this.subs, buyingGroups: this.buyingGroups, states: this.states, statuses: this.statuses, normalize: this.normalize, agg: this.agg, horizon: this.horizon, from: custom ? this.fromDate : "", to: custom ? this.toDate : "" };
+    // When all (or none) are selected, send empty lists: the server already scopes to the user's
+    // allowed categories, and an empty filter is far cheaper than a giant IN(...) clause (avoids 504s).
+    const allP = this.parentOptions.length, allS = this.subOptions.length;
+    const parents = this.parents.length && this.parents.length < allP ? this.parents : [];
+    const subs = this.subs.length && this.subs.length < allS ? this.subs : [];
+    return { brand: this.viewAs, parents, subs, buyingGroups: this.buyingGroups, states: this.states, statuses: this.statuses, normalize: this.normalize, agg: this.agg, horizon: this.horizon, from: custom ? this.fromDate : "", to: custom ? this.toDate : "" };
   }
   /** Date Range presets vs custom calendar. Switching to Custom seeds sensible dates (Jan 1 → today). */
   setHorizon(h: string): void {
@@ -393,9 +402,9 @@ export class DashboardComponent implements OnInit {
     });
   }
 
-  onParents(v: string[]): void { this.parents = v; this.subs = this.subs.filter((s) => this.subOptions.includes(s)); this.rebuild(); }
-  setView(v: string): void { this.viewAs = v; this.parents = []; this.subs = []; this.rebuild(true); }
-  reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.fromDate = ""; this.toDate = ""; this.rebuild(true); }
+  onParents(v: string[]): void { this.parents = v; this.subs = [...this.subOptions]; this.rebuild(); }
+  setView(v: string): void { this.viewAs = v; this.selectAllCats(); this.rebuild(true); }
+  reset(): void { this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.fromDate = ""; this.toDate = ""; this.selectAllCats(); this.rebuild(true); }
   toggleSub(): void { this.subSvc.toggle(this.dashId); }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }

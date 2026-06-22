@@ -109,7 +109,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
         <input class="minput" style="width:100%;margin-bottom:6px" placeholder="Type a brand…" [(ngModel)]="uQuery" />
         <div class="suggest" *ngIf="uSuggest.length"><div class="sg" *ngFor="let b of uSuggest" (click)="addBrand(uForm.brands, b); uQuery=''">{{ b }}</div></div>
         <div class="chips" style="margin:6px 0 12px"><span class="chip on" *ngFor="let b of uForm.brands" (click)="removeBrand(uForm.brands, b)">{{ b }} ✕</span></div>
-        <div style="font-size:12px;font-weight:700;margin:6px 0 4px">Restrict access <span class="muted" style="font-weight:400">— leave empty for full access to the master filter set</span></div>
+        <div style="font-size:12px;font-weight:700;margin:6px 0 4px">Restrict access <span class="muted" style="font-weight:400">— leave empty to inherit the company's default access; set values here to override it for this user</span></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
           <app-multiselect label="Parent categories" allLabel="All categories" [options]="parentOptions" [selected]="uForm.parents" (selectedChange)="uForm.parents=$event"></app-multiselect>
           <app-multiselect label="Sub-categories" allLabel="All sub-categories" [options]="subOptions(uForm.parents)" [selected]="uForm.subs" (selectedChange)="uForm.subs=$event"></app-multiselect>
@@ -201,6 +201,6 @@ export class VendorAdminComponent implements OnInit {
 
   private blankUser() { return { firstName: "", lastName: "", email: "", companyName: "", brands: [] as string[], parents: [] as string[], subs: [] as string[], buyingGroups: [] as string[], states: [] as string[], perms: Object.fromEntries(USER_PERMISSIONS.map((p) => [p, true])) as Record<string, boolean> }; }
   openUser(): void { this.uForm = this.blankUser(); this.uQuery = ""; this.showUser = true; }
-  onCompany(): void { const c = this.vs.getCompany(this.uForm.companyName); if (c) { this.uForm.brands = [...c.brands]; this.uForm.perms = { ...c.perms }; this.uForm.parents = [...(c.parents || [])]; this.uForm.subs = [...(c.subs || [])]; this.uForm.states = [...(c.states || [])]; } }
+  onCompany(): void { const c = this.vs.getCompany(this.uForm.companyName); if (c) { this.uForm.brands = [...c.brands]; this.uForm.perms = { ...c.perms }; } }
   saveUser(): void { if (!this.validEmail || !this.uForm.companyName) return; this.vs.addUser({ ...this.uForm, createdBy: this.auth.session()?.email || "Admin" }); this.showUser = false; this.expanded = this.uForm.companyName; }
 }

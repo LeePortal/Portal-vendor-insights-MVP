@@ -59,7 +59,8 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
             <div class="suggest" *ngIf="brandSuggest.length"><div class="sg" *ngFor="let b of brandSuggest" (click)="addBrand(b); brandQuery=''">{{ b }}</div></div>
             <div class="chips" style="margin-bottom:14px"><span class="chip on" *ngFor="let b of edit.brands" (click)="removeBrand(b)">{{ b }} ✕</span><span *ngIf="!edit.brands.length" class="muted" style="font-size:12px">No brands assigned.</span></div>
 
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Restrict access <span class="muted">— empty = full master filter set</span></div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Restrict access <span class="muted">— empty = inherit the company default; set values to override for this user</span></div>
+            <div class="muted" style="font-size:11px;margin-bottom:6px">Company default: <b>{{ coDefault }}</b></div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
               <app-multiselect label="Parent categories" allLabel="All categories" [options]="parentOptions" [selected]="edit.parents" (selectedChange)="edit.parents=$event"></app-multiselect>
               <app-multiselect label="Sub-categories" allLabel="All sub-categories" [options]="subOptions" [selected]="edit.subs" (selectedChange)="edit.subs=$event"></app-multiselect>
@@ -142,6 +143,7 @@ export class UserDetailComponent implements OnInit {
     this.edit = this.snapshot();
   }
   get storeError(): string { return this.va.storeError; }
+  get coDefault(): string { const c = this.user ? this.va.getCompany(this.user.companyName) : undefined; return c && c.parents.length ? c.parents.join(", ") : "All categories"; }
 
   get downloads() { return this.dl.downloadsFor(this.email); }
   get subOptions(): string[] { return this.edit.parents.length ? this.an.subsForParents(this.edit.parents) : []; }
