@@ -12,6 +12,7 @@ import { ProposalSeriesResult } from "../core/brand-performance.contract";
 import { DATA_MODE } from "../core/app-config";
 import { TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSeries, PALETTE } from "../components/charts.component";
 import { MultiSelectComponent } from "../components/multiselect.component";
+import { PORTAL_WORDMARK_DATA_URI } from "../core/report-logo";
 
 interface Widget { title: string; value: string; yoy: number; points: DualPoint[]; hasBrand: boolean; vfmt: "money" | "pct" | "num"; ylabel: string; }
 
@@ -410,7 +411,8 @@ export class DashboardComponent implements OnInit {
     this.pdfBusy = true;
     this.notice = "";
     try {
-      const blob = await this.buildPdf();
+      const { html, header, footer } = this.buildReportHtml();
+      const blob = await this.src.renderPdf({ html, header, footer });
       const fname = "Portal Market Insights Report - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".pdf";
       this.dl.request({ kind: "pdf", filename: fname, blobData: blob });
     } catch (e: any) {
@@ -420,191 +422,95 @@ export class DashboardComponent implements OnInit {
     }
   }
 
-  /** Build the branded one-page-style report as a real downloadable PDF (jsPDF, vector charts).
-   *  jsPDF is loaded on demand so it stays out of the initial bundle. */
-  private async buildPdf(): Promise<Blob> {
-    const { jsPDF } = await import("jspdf");
-    const doc = new jsPDF({ unit: "pt", format: "letter", compress: true });
-    const PW = doc.internal.pageSize.getWidth();
-    const PH = doc.internal.pageSize.getHeight();
-    const M = 40, CW = PW - M * 2;
-    const ORANGE: [number, number, number] = [255, 80, 0];
-    const DARK: [number, number, number] = [39, 39, 42];
-    const GREY: [number, number, number] = [138, 138, 138];
-    const GRID: [number, number, number] = [236, 236, 239];
-    const GREEN: [number, number, number] = [29, 158, 117];
-    const RED: [number, number, number] = [216, 90, 48];
-    const company = this.viewAs === "admin" ? "All companies" : this.viewAs;
+  private esc(s: any): string { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  private axvHtml(v: number, f: "money" | "pct" | "num"): string { return f === "money" ? this.money(v) : f === "pct" ? (Math.round(v * 10) / 10) + "%" : this.num(v); }
+
+  /** Competitive index multi-line chart as inline SVG (renders identically in any HTML->PDF engine). */
+  private svgMulti(series: MultiSeries[], axis: string[]): string {
+    const GREY = "#8A8A8A";
+    const live = series.filter((s) => s.values && s.values.length);
+    if (!live.length || !axis.length) return "";
+    const W = 1000, H = 300, padL = 58, padR = 20, padT = 16, padB = 46, iw = W - padL - padR, ih = H - padT - padB;
+    const n = axis.length, max = Math.max(1, ...live.flatMap((s) => s.values.filter((v) => v != null)));
+    const X = (i: number) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+    const Y = (v: number) => padT + ih - (Math.max(0, v || 0) / max) * ih;
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" font-family="Helvetica,Arial,sans-serif">`;
+    [0, 0.25, 0.5, 0.75, 1].forEach((g) => { const gy = padT + ih - g * ih; s += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${padL + iw}" y2="${gy.toFixed(1)}" stroke="#ececef" stroke-width="1"/><text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-size="11" fill="${GREY}">${this.axvHtml(g * max, "pct")}</text>`; });
+    live.forEach((se) => { s += `<polyline points="${se.values.map((v, i) => X(i).toFixed(1) + "," + Y(v).toFixed(1)).join(" ")}" fill="none" stroke="${se.color}" stroke-width="2.4"/>`; se.values.forEach((v, i) => { s += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${n <= 3 ? 4 : 2.6}" fill="${se.color}"/>`; }); });
+    const idx = n <= 2 ? axis.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
+    idx.forEach((i) => { s += `<text x="${X(i).toFixed(1)}" y="${H - 16}" text-anchor="middle" font-size="11" fill="${GREY}">${this.esc(axis[i])}</text>`; });
+    s += "</svg>";
+    const legend = `<div class="legend">` + live.slice(0, 10).map((se) => `<span class="lg"><span class="sw" style="background:${se.color}"></span>${this.esc(se.label)}</span>`).join("") + `</div>`;
+    return `<div class="chart">${s}${legend}</div>`;
+  }
+
+  /** Proposal-trend dual-axis chart (category solid / brand dashed, right axis) as inline SVG. */
+  private svgDual(points: DualPoint[], vfmt: "money" | "pct" | "num", showBrand: boolean): string {
+    const ORANGE = "#F05622", DARK = "#27272A", GREY = "#8A8A8A";
+    if (!points || !points.length) return "";
     const brandLabel = this.viewAs === "admin" ? "Viewed brand" : this.viewAs;
-    const scope = [this.horizon, this.parents.length ? this.parents.join(", ") : "All categories", this.states.length ? this.states.join(", ") : "All states"].join("   ·   ");
+    const W = 1000, H = 300, padL = 66, padR = showBrand ? 66 : 20, padT = 16, padB = 46, iw = W - padL - padR, ih = H - padT - padB;
+    const n = points.length, catMax = Math.max(1, ...points.map((p) => p.category)), brMax = Math.max(1, ...points.map((p) => p.brand));
+    const X = (i: number) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+    const YC = (v: number) => padT + ih - (Math.max(0, v || 0) / catMax) * ih;
+    const YB = (v: number) => padT + ih - (Math.max(0, v || 0) / brMax) * ih;
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" font-family="Helvetica,Arial,sans-serif">`;
+    [0, 0.25, 0.5, 0.75, 1].forEach((g) => { const gy = padT + ih - g * ih; s += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${padL + iw}" y2="${gy.toFixed(1)}" stroke="#ececef" stroke-width="1"/><text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-size="11" fill="${DARK}">${this.axvHtml(g * catMax, vfmt)}</text>` + (showBrand ? `<text x="${padL + iw + 6}" y="${(gy + 3).toFixed(1)}" text-anchor="start" font-size="11" fill="${ORANGE}">${this.axvHtml(g * brMax, vfmt)}</text>` : ""); });
+    s += `<polyline points="${points.map((p, i) => X(i).toFixed(1) + "," + YC(p.category).toFixed(1)).join(" ")}" fill="none" stroke="${DARK}" stroke-width="2.4"/>`;
+    points.forEach((p, i) => { s += `<circle cx="${X(i).toFixed(1)}" cy="${YC(p.category).toFixed(1)}" r="${n <= 3 ? 4 : 2.6}" fill="${DARK}"/>`; });
+    if (showBrand) { s += `<polyline points="${points.map((p, i) => X(i).toFixed(1) + "," + YB(p.brand).toFixed(1)).join(" ")}" fill="none" stroke="${ORANGE}" stroke-width="2.6" stroke-dasharray="8 5"/>`; points.forEach((p, i) => { s += `<circle cx="${X(i).toFixed(1)}" cy="${YB(p.brand).toFixed(1)}" r="${n <= 3 ? 4 : 2.6}" fill="${ORANGE}"/>`; }); }
+    const idx = n <= 2 ? points.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
+    idx.forEach((i) => { s += `<text x="${X(i).toFixed(1)}" y="${H - 16}" text-anchor="middle" font-size="11" fill="${GREY}">${this.esc(points[i].label)}</text>`; });
+    s += "</svg>";
+    const legend = `<div class="legend"><span class="lg"><span class="sw" style="background:${DARK}"></span>Category</span>` + (showBrand ? `<span class="lg"><span class="sw" style="background:${ORANGE}"></span>${this.esc(brandLabel)} (right axis)</span>` : "") + `</div>`;
+    return `<div class="chart">${s}${legend}</div>`;
+  }
+
+  /** Assemble the branded, renderer-agnostic report: static HTML + inline SVG, plus per-page
+   *  header/footer templates. The same output renders under Chromium (now) or WeasyPrint/Gotenberg. */
+  private buildReportHtml(): { html: string; header: string; footer: string } {
+    const ORANGE = "#F05622", GREY = "#8A8A8A";
+    const company = this.viewAs === "admin" ? "All companies" : this.viewAs;
     const statuses = this.dataMode === "api" ? (this.statuses.join(", ") || "All statuses") : "Sample data";
+    const scope = [this.horizon, this.parents.length ? this.parents.join(", ") : "All categories", this.states.length ? this.states.join(", ") : "All states"].map((x) => this.esc(x)).join("   &middot;   ") + "   &middot;   Statuses: " + this.esc(statuses);
     const date = new Date().toISOString().slice(0, 10);
-    const st = { y: M };
-    const hexRgb = (h: string): [number, number, number] => { const m = h.replace("#", ""); const f = m.length === 3 ? m.split("").map((c) => c + c).join("") : m; const n = parseInt(f, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
-    const sc = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
-    const fcol = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
-    const tc = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
-    const ensure = (need: number) => { if (st.y + need > PH - M - 24) { doc.addPage(); st.y = M; } };
-    const clip = (t: any, w: number): string => { const s = String(t ?? ""); return doc.splitTextToSize(s, w)[0] || ""; };
-
-    // Header
-    doc.setFont("helvetica", "bold"); doc.setFontSize(19); tc(ORANGE); doc.text("Portal", M, st.y + 8);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); tc(GREY); doc.text("WHERE BRANDS AND INTEGRATORS CONNECT", M, st.y + 19);
-    doc.setFontSize(9); tc(GREY);
-    doc.text("MARKET INSIGHTS", PW - M, st.y + 3, { align: "right" });
-    doc.text("Brand Performance Report", PW - M, st.y + 15, { align: "right" });
-    st.y += 28; fcol(ORANGE); doc.rect(M, st.y, CW, 3, "F"); st.y += 18;
-
-    // Title + scope
-    doc.setFont("helvetica", "bold"); doc.setFontSize(19); tc(DARK); doc.text(company, M, st.y + 6); st.y += 20;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10); tc(GREY); doc.text("Market performance overview", M, st.y); st.y += 14;
-    doc.setFontSize(8.5);
-    const scopeLines: string[] = doc.splitTextToSize(scope + "   ·   Statuses: " + statuses, CW);
-    doc.text(scopeLines, M, st.y); st.y += scopeLines.length * 11 + 8;
-
-    // KPI cards
-    const cards: [string, string, number][] = [
-      ["Brand revenue", this.money(this.kpis.revenue), this.kpis.revenueYoY],
-      ["Units sold", this.num(this.kpis.units), this.kpis.unitsYoY],
-      ["Proposals", this.num(this.kpis.proposals), this.kpis.proposalsYoY],
-      ["Active dealers", this.num(this.kpis.dealers), this.kpis.dealersYoY],
-    ];
-    const gap = 10, cwd = (CW - 3 * gap) / 4, chh = 50;
-    ensure(chh + 6);
-    cards.forEach((c, i) => {
-      const x = M + i * (cwd + gap);
-      sc([229, 229, 229]); doc.setLineWidth(0.7); doc.roundedRect(x, st.y, cwd, chh, 4, 4, "S");
-      doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); tc(GREY); doc.text(c[0].toUpperCase(), x + 8, st.y + 14);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(14); tc(DARK); doc.text(clip(c[1], cwd - 14), x + 8, st.y + 32);
-      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); tc(c[2] >= 0 ? GREEN : RED); doc.text((c[2] >= 0 ? "+" : "-") + Math.abs(c[2]) + "% YoY", x + 8, st.y + 44);
-    });
-    st.y += chh + 20;
-
-    const h2 = (t: string) => { ensure(30); sc([238, 238, 238]); doc.setLineWidth(0.7); doc.line(M, st.y, M + CW, st.y); st.y += 15; doc.setFont("helvetica", "bold"); doc.setFontSize(11.5); tc(DARK); doc.text(t, M, st.y); st.y += 12; };
-
-    // Multi-line chart (competitive index)
-    const drawMulti = (series: MultiSeries[], axis: string[]) => {
-      const live = series.filter((s) => s.values && s.values.length);
-      if (!live.length || !axis.length) return;
-      const H = 160, padL = 46, padR = 12, padT = 8, padB = 20, iw = CW - padL - padR, ih = H - padT - padB;
-      ensure(H + 18); const x0 = M, y0 = st.y;
-      const n = axis.length, max = Math.max(1, ...live.flatMap((s) => s.values.filter((v) => v != null)));
-      const X = (i: number) => x0 + padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
-      const Y = (v: number) => y0 + padT + ih - (Math.max(0, v || 0) / max) * ih;
-      sc(GRID); doc.setLineWidth(0.5); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); tc(GREY);
-      [0, 0.25, 0.5, 0.75, 1].forEach((g) => { const gy = y0 + padT + ih - g * ih; doc.line(x0 + padL, gy, x0 + padL + iw, gy); doc.text((Math.round(g * max * 10) / 10) + "%", x0 + padL - 3, gy + 2, { align: "right" }); });
-      live.forEach((s) => {
-        const rgb = hexRgb(s.color); sc(rgb); doc.setLineWidth(1.4);
-        for (let i = 1; i < s.values.length; i++) doc.line(X(i - 1), Y(s.values[i - 1]), X(i), Y(s.values[i]));
-        fcol(rgb); s.values.forEach((v, i) => doc.circle(X(i), Y(v), n <= 3 ? 2.4 : 1.5, "F"));
-      });
-      tc(GREY); doc.setFontSize(6.5);
-      const idx = n <= 2 ? axis.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
-      idx.forEach((i) => doc.text(clip(axis[i], 60), X(i), y0 + H - 6, { align: "center" }));
-      st.y = y0 + H;
-      ensure(16); let lx = M; doc.setFontSize(7.5);
-      live.slice(0, 8).forEach((s) => { const rgb = hexRgb(s.color); fcol(rgb); doc.rect(lx, st.y - 4, 9, 3.5, "F"); tc(DARK); doc.text(s.label, lx + 12, st.y); lx += 12 + doc.getTextWidth(s.label) + 14; if (lx > M + CW - 90) { st.y += 12; lx = M; } });
-      st.y += 16;
+    const kpiCard = (l: string, v: string, y: number) => `<div class="card"><div class="lbl">${l}</div><div class="big">${v}</div><div class="yoy" style="color:${y >= 0 ? "#1d9e75" : "#d85a30"}">${y >= 0 ? "+" : ""}${y}% YoY</div></div>`;
+    const tbl = (cols: { t: string; r?: boolean }[], rows: any[][], meIdx?: (i: number) => boolean) => {
+      let h = `<table><thead><tr>` + cols.map((c) => `<th class="${c.r ? "r" : ""}">${c.t}</th>`).join("") + `</tr></thead><tbody>`;
+      rows.forEach((r, ri) => { h += `<tr${meIdx && meIdx(ri) ? ' class="me"' : ""}>` + r.map((cell, ci) => `<td class="${cols[ci].r ? "r" : ""}">${this.esc(cell)}</td>`).join("") + `</tr>`; });
+      return h + `</tbody></table>`;
     };
-
-    // Dual-axis chart (category vs brand)
-    const drawDual = (points: DualPoint[], vfmt: "money" | "pct" | "num", showBrand: boolean) => {
-      if (!points || !points.length) return;
-      const H = 160, padL = 52, padR = showBrand ? 52 : 14, padT = 8, padB = 20, iw = CW - padL - padR, ih = H - padT - padB;
-      ensure(H + 18); const x0 = M, y0 = st.y;
-      const n = points.length, catMax = Math.max(1, ...points.map((p) => p.category)), brMax = Math.max(1, ...points.map((p) => p.brand));
-      const X = (i: number) => x0 + padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
-      const YC = (v: number) => y0 + padT + ih - (Math.max(0, v || 0) / catMax) * ih;
-      const YB = (v: number) => y0 + padT + ih - (Math.max(0, v || 0) / brMax) * ih;
-      const fmt = (v: number) => vfmt === "money" ? this.money(v) : vfmt === "pct" ? (Math.round(v * 10) / 10) + "%" : this.num(v);
-      sc(GRID); doc.setLineWidth(0.5); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
-      [0, 0.25, 0.5, 0.75, 1].forEach((g) => {
-        const gy = y0 + padT + ih - g * ih; doc.line(x0 + padL, gy, x0 + padL + iw, gy);
-        tc(DARK); doc.text(fmt(g * catMax), x0 + padL - 3, gy + 2, { align: "right" });
-        if (showBrand) { tc(ORANGE); doc.text(fmt(g * brMax), x0 + padL + iw + 3, gy + 2, { align: "left" }); }
-      });
-      sc(DARK); doc.setLineWidth(1.4);
-      for (let i = 1; i < n; i++) doc.line(X(i - 1), YC(points[i - 1].category), X(i), YC(points[i].category));
-      fcol(DARK); points.forEach((p, i) => doc.circle(X(i), YC(p.category), n <= 3 ? 2.4 : 1.5, "F"));
-      if (showBrand) {
-        sc(ORANGE); doc.setLineWidth(1.6); doc.setLineDashPattern([4, 3], 0);
-        for (let i = 1; i < n; i++) doc.line(X(i - 1), YB(points[i - 1].brand), X(i), YB(points[i].brand));
-        doc.setLineDashPattern([], 0); fcol(ORANGE); points.forEach((p, i) => doc.circle(X(i), YB(p.brand), n <= 3 ? 2.4 : 1.5, "F"));
-      }
-      tc(GREY); doc.setFontSize(6.5);
-      const idx = n <= 2 ? points.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
-      idx.forEach((i) => doc.text(clip(points[i].label, 60), X(i), y0 + H - 6, { align: "center" }));
-      st.y = y0 + H;
-      ensure(16); let lx = M; doc.setFontSize(7.5);
-      fcol(DARK); doc.rect(lx, st.y - 4, 9, 3.5, "F"); tc(DARK); doc.text("Category", lx + 12, st.y); lx += 12 + doc.getTextWidth("Category") + 16;
-      if (showBrand) { fcol(ORANGE); doc.rect(lx, st.y - 4, 9, 3.5, "F"); tc(DARK); doc.text(brandLabel + " (right axis)", lx + 12, st.y); }
-      st.y += 16;
-    };
-
-    type Col = { t: string; w: number; r?: boolean };
-    const table = (cols: Col[], rows: string[][], meRow?: (i: number) => boolean) => {
-      const headH = 18, rowH = 15;
-      const head = () => { fcol([247, 247, 248]); doc.rect(M, st.y, CW, headH, "F"); doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); tc(GREY); let x = M; cols.forEach((c) => { doc.text(c.t, c.r ? x + c.w - 4 : x + 4, st.y + 12, { align: c.r ? "right" : "left" }); x += c.w; }); st.y += headH; };
-      ensure(headH + rowH * 2); head();
-      rows.forEach((r, ri) => {
-        if (st.y + rowH > PH - M - 24) { doc.addPage(); st.y = M; head(); }
-        const me = !!(meRow && meRow(ri));
-        if (me) { fcol([255, 241, 234]); doc.rect(M, st.y, CW, rowH, "F"); }
-        doc.setFont("helvetica", me ? "bold" : "normal"); doc.setFontSize(7.5); tc(DARK);
-        let x = M; cols.forEach((c, ci) => { doc.text(clip(r[ci], c.w - 8), c.r ? x + c.w - 4 : x + 4, st.y + 10, { align: c.r ? "right" : "left" }); x += c.w; });
-        sc([240, 240, 240]); doc.setLineWidth(0.4); doc.line(M, st.y + rowH, M + CW, st.y + rowH); st.y += rowH;
-      });
-      st.y += 8;
-    };
-
-    // ===== Body =====
-    if (this.compSeries.some((s) => s.values && s.values.length)) { h2("Competitive index — share of category"); drawMulti(this.compSeries, this.compAxis); }
-
-    h2("Category share by brand");
-    table(
-      [{ t: "#", w: 24 }, { t: "Brand", w: CW - 24 - 100 - 78 - 70 - 60 }, { t: "Total sales", w: 100, r: true }, { t: "$ share", w: 78, r: true }, { t: "Units", w: 70, r: true }, { t: "SKUs", w: 60, r: true }],
-      this.brandRows.slice(0, 12).map((r, i) => [String(i + 1), r.brand, this.cur(r.sales), this.pct(r.sharePct / 100), this.num(r.units), this.num(r.skus)]),
-      (i) => !!this.brandRows[i] && this.brandRows[i].brand === this.viewAs,
-    );
-
-    h2("Top items");
-    table(
-      [{ t: "Brand", w: 120 }, { t: "Model", w: CW - 120 - 110 - 100 }, { t: "Total sales", w: 110, r: true }, { t: "$ share", w: 100, r: true }],
-      this.itemRows.slice(0, 10).map((r) => [r.brand, r.model, this.cur(r.sales), this.pct(r.sharePct / 100)]),
-      (i) => !!this.itemRows[i] && this.itemRows[i].brand === this.viewAs,
-    );
-
-    const subV = this.submitted[0], accV = this.accepted[0];
-    if (subV || accV) {
-      h2("Proposal trends");
-      if (subV) { ensure(14); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); tc(DARK); doc.text("Category value on submitted proposals", M, st.y); st.y += 10; drawDual(subV.points, subV.vfmt, subV.hasBrand); }
-      if (accV) { ensure(14); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); tc(DARK); doc.text("Accepted & completed proposals", M, st.y); st.y += 10; drawDual(accV.points, accV.vfmt, accV.hasBrand); }
-    }
-
-    h2("Competitive displacement");
-    const colW = (CW - 20) / 2;
-    const wonLines = this.won.slice(0, 6).map((d) => "•  " + d.model + " — " + this.num(d.units) + " units, " + this.cur(d.sales) + " (beat " + d.competitorsBeaten + ")");
-    const lostLines = this.lost.slice(0, 6).map((d) => "•  " + d.model + " — " + this.num(d.lostUnits) + " units lost");
-    if (!wonLines.length) wonLines.push("None in the selected range");
-    if (!lostLines.length) lostLines.push("None in the selected range");
-    ensure(24 + Math.max(wonLines.length, lostLines.length) * 11);
-    const dy = st.y;
-    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); tc(GREEN); doc.text("Business won — competitors displaced", M, dy);
-    tc(RED); doc.text("Business lost — you were displaced", M + colW + 20, dy);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); tc(DARK);
-    let wy = dy + 13; wonLines.forEach((l) => { const ls: string[] = doc.splitTextToSize(l, colW); doc.text(ls, M, wy); wy += ls.length * 10; });
-    let ly = dy + 13; lostLines.forEach((l) => { const ls: string[] = doc.splitTextToSize(l, colW); doc.text(ls, M + colW + 20, ly); ly += ls.length * 10; });
-    st.y = Math.max(wy, ly) + 8;
-
-    // Footer (page numbers) on every page
-    const pages = doc.getNumberOfPages();
-    for (let p = 1; p <= pages; p++) {
-      doc.setPage(p); doc.setFont("helvetica", "normal"); doc.setFontSize(7); tc([170, 170, 170]);
-      doc.text("Generated " + date + "   ·   " + company + "   ·   " + this.session.name + "   ·   Portal.io", M, PH - 18);
-      doc.text("Page " + p + " of " + pages, PW - M, PH - 18, { align: "right" });
-    }
-
-    return doc.output("blob");
+    const section = (inner: string) => `<div class="section">${inner}</div>`;
+    let body = `<h1>${this.esc(company)}</h1><div class="sub">Market performance overview</div><div class="scope">${scope}</div>`;
+    body += section(`<div class="cards">${kpiCard("Brand revenue", this.money(this.kpis.revenue), this.kpis.revenueYoY)}${kpiCard("Units sold", this.num(this.kpis.units), this.kpis.unitsYoY)}${kpiCard("Proposals", this.num(this.kpis.proposals), this.kpis.proposalsYoY)}${kpiCard("Active dealers", this.num(this.kpis.dealers), this.kpis.dealersYoY)}</div>`);
+    if (this.compSeries.some((s) => s.values && s.values.length)) body += section(`<h2>Competitive index &mdash; share of category</h2>${this.svgMulti(this.compSeries, this.compAxis)}`);
+    body += section(`<h2>Category share by brand</h2>` + tbl([{ t: "#" }, { t: "Brand" }, { t: "Total sales", r: true }, { t: "$ share", r: true }, { t: "Units", r: true }, { t: "SKUs", r: true }], this.brandRows.slice(0, 12).map((r, i) => [i + 1, r.brand, this.cur(r.sales), this.pct(r.sharePct / 100), this.num(r.units), this.num(r.skus)]), (i) => !!this.brandRows[i] && this.brandRows[i].brand === this.viewAs));
+    body += section(`<h2>Top items</h2>` + tbl([{ t: "Brand" }, { t: "Model" }, { t: "Total sales", r: true }, { t: "$ share", r: true }], this.itemRows.slice(0, 10).map((r) => [r.brand, r.model, this.cur(r.sales), this.pct(r.sharePct / 100)]), (i) => !!this.itemRows[i] && this.itemRows[i].brand === this.viewAs));
+    if (this.subcatRows.length) body += section(`<h2>Sub-category breakdown</h2>` + tbl([{ t: "Sub-category" }, { t: "Total sales", r: true }, { t: "$ % of cat", r: true }, { t: "Units", r: true }, { t: "Avg sell", r: true }], this.subcatRows.map((r) => [r.subcat, this.cur(r.sales), this.pct(r.pctOfCat / 100), this.num(r.units), this.cur(r.avgSell)])));
+    if (this.submitted.length) { body += `<h2 class="grouphd">Category value on Submitted proposals</h2>`; this.submitted.forEach((w) => { body += section(`<div class="ct">${this.esc(w.title)}</div>${this.svgDual(w.points, w.vfmt, w.hasBrand)}`); }); }
+    if (this.accepted.length) { body += `<h2 class="grouphd">Accepted &amp; Completed proposals</h2>`; this.accepted.forEach((w) => { body += section(`<div class="ct">${this.esc(w.title)}</div>${this.svgDual(w.points, w.vfmt, w.hasBrand)}`); }); }
+    const wonHtml = this.won.length ? this.won.slice(0, 6).map((d) => `<li>${this.esc(d.model)} &mdash; ${this.num(d.units)} units, ${this.cur(d.sales)} (beat ${d.competitorsBeaten})</li>`).join("") : `<li class="muted">None in the selected range</li>`;
+    const lostHtml = this.lost.length ? this.lost.slice(0, 6).map((d) => `<li>${this.esc(d.model)} &mdash; ${this.num(d.lostUnits)} units lost</li>`).join("") : `<li class="muted">None in the selected range</li>`;
+    body += section(`<h2>Competitive displacement</h2><div class="two"><div><div class="cwon">Business won &mdash; competitors displaced</div><ul>${wonHtml}</ul></div><div><div class="clost">Business lost &mdash; you were displaced</div><ul>${lostHtml}</ul></div></div>`);
+    const css = `*{box-sizing:border-box}body{font-family:Helvetica,Arial,sans-serif;color:#2b2b2b;margin:0;font-size:12px;line-height:1.45}`
+      + `h1{font-size:26px;margin:4px 0 2px;color:#1f1f1f}.sub{color:${GREY};font-size:13px}.scope{color:${GREY};font-size:11px;margin:3px 0 14px}`
+      + `h2{font-size:15px;color:#1f1f1f;margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid #E6E0DC}`
+      + `h2.grouphd{border-bottom:none;color:${ORANGE};margin-top:18px}`
+      + `.section{page-break-inside:avoid;break-inside:avoid;margin-bottom:10px}`
+      + `.cards{display:flex;gap:12px;margin:6px 0}.card{flex:1;border:1px solid #EADfd9;border-top:4px solid ${ORANGE};border-radius:8px;padding:11px 13px;background:#FFFCFB}`
+      + `.card .lbl{font-size:9.5px;color:#6a6a6a;text-transform:uppercase;letter-spacing:.5px;font-weight:700}.card .big{font-size:25px;font-weight:800;color:#1f1f1f;margin:3px 0}.card .yoy{font-size:11px;font-weight:700}`
+      + `table{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0}th,td{padding:6px 8px;text-align:left;border-bottom:1px solid #EDEDED}th.r,td.r{text-align:right}`
+      + `thead th{background:#F6F4F2;color:#555;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #E0DAD5}`
+      + `tr.me{background:#FDEDE6;font-weight:700}`
+      + `.ct{font-size:11px;color:#777;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:8px 0 2px}`
+      + `.chart{border:1px solid #EEE;border-radius:8px;padding:8px 12px 6px;margin:4px 0}`
+      + `.legend{margin-top:8px;font-size:11px;color:#555}.legend .lg{margin-right:16px;white-space:nowrap}.legend .sw{display:inline-block;width:12px;height:3px;vertical-align:middle;margin-right:4px}`
+      + `.two{display:flex;gap:28px}.two>div{flex:1}ul{margin:6px 0;padding-left:16px}li{margin:3px 0;font-size:11px}.muted{color:#aaa;list-style:none;margin-left:-16px}`
+      + `.cwon{font-weight:700;color:#1d9e75;font-size:12px}.clost{font-weight:700;color:#d85a30;font-size:12px}`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${body}</body></html>`;
+    const header = `<div style="width:100%;font-size:9px;padding:0 0.55in;box-sizing:border-box;-webkit-print-color-adjust:exact;"><div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid ${ORANGE};padding-bottom:5px;"><div><img src="${PORTAL_WORDMARK_DATA_URI}" style="height:24px;display:block"/><div style="font-size:6px;letter-spacing:1px;color:${GREY};text-transform:uppercase;margin-top:2px">Where brands and integrators connect</div></div><div style="text-align:right"><div style="font-size:9px;letter-spacing:2px;color:${GREY};font-weight:700">MARKET INSIGHTS</div><div style="font-size:7px;color:#9a9a9a">Brand Performance Report</div></div></div></div>`;
+    const footer = `<div style="width:100%;font-size:7.5px;color:#aaa;padding:0 0.55in;box-sizing:border-box;display:flex;justify-content:space-between;-webkit-print-color-adjust:exact;"><span>Generated ${date} &middot; ${this.esc(company)} &middot; ${this.esc(this.session.name)} &middot; Portal.io</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`;
+    return { html, header, footer };
   }
 
   money(n: number): string { if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B"; if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return "$" + Math.round(n / 1e3) + "k"; return "$" + Math.round(n); }

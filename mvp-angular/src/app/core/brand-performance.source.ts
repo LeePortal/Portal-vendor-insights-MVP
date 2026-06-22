@@ -48,6 +48,16 @@ export class BrandPerformanceSource {
     };
   }
 
+  /**
+   * Render a report to PDF. Sends renderer-agnostic HTML (+ per-page header/footer templates) to the
+   * generic HTML->PDF endpoint and returns the PDF blob. The endpoint runs headless Chromium on Vercel
+   * today; in production the same call can target the WeasyPrint/Gotenberg renderer with only a URL change.
+   */
+  async renderPdf(payload: { html: string; header?: string; footer?: string }): Promise<Blob> {
+    return firstValueFrom(
+      this.http.post(API_BASE_URL + "/api/report-pdf", payload, { responseType: "blob" }));
+  }
+
   /** Build the exact payload from the in-browser generator (also documents the API contract). */
   private synthetic(f: BrandPerfFilter): BrandPerfPayload {
     return {

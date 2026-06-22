@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "pg": "^8.11.5",
-    "jspdf": "^2.5.2",
+    "@sparticuz/chromium": "^149.0.0",
+    "puppeteer-core": "^25.1.0",
     "@angular/animations": "^18.2.0",
     "@angular/cdk": "^18.2.0",
     "@angular/common": "^18.2.0",
