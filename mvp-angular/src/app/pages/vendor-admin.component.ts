@@ -21,6 +21,8 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
       <div style="display:flex;gap:8px;align-items:center"><span class="badge-sample">SAMPLE DATA</span><button class="pbtn" (click)="openCompany()">+ Add company</button><button class="pbtn primary" (click)="openUser()">+ Add user</button></div>
     </div>
 
+    <div *ngIf="vs.storeError" class="pcard" style="border:1px solid var(--negative)"><div class="bd" style="color:var(--negative);font-size:12px"><b>Vendor store not connected.</b> The admin UI is running on this browser's local cache only — edits are NOT saved server-side and will NOT apply to vendor logins or permission enforcement. {{ vs.storeError }}</div></div>
+
     <div class="pcard">
       <div class="hd"><div class="t">Company Subscriptions</div><div class="s">Click a company to expand its logo, users and controls. Click a column to sort.</div></div>
       <div class="bd">

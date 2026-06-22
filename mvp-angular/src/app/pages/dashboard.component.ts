@@ -298,7 +298,7 @@ export class DashboardComponent implements OnInit {
     this.title = (DASHBOARDS.find((d) => d.id === id)?.name || "Brand Performance Overview");
     if (!this.isAdmin) {
       this.viewAs = this.data.getVendor(this.session.vendorId || "")?.name || this.allBrands[0];
-      this.restrictParents = this.va.getUser(this.session.email)?.parents || [];
+      this.restrictParents = this.session.allowedParents ?? this.va.getUser(this.session.email)?.parents ?? [];
     } else {
       const v = this.route.snapshot.queryParamMap.get("view");
       if (v) this.viewAs = this.data.getVendor(v)?.name || "admin";

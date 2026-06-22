@@ -82,7 +82,7 @@ module.exports = async (req, res) => {
 
     claims.exp = Math.floor(Date.now() / 1000) + 60 * 60 * 12; // 12h
     const token = sign(claims, process.env.AUTH_SECRET);
-    res.status(200).json({ token, role: claims.role, brand: claims.brand });
+    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates });
   } catch (e) {
     res.status(500).json({ error: String((e && e.message) || e) });
   }

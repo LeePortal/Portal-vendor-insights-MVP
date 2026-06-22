@@ -55,9 +55,9 @@ export class AuthService {
     const u = this.demoUsers.find((x) => x.email.toLowerCase() === e);
     if (DATA_MODE === "api") {
       try {
-        const r = await firstValueFrom(this.http.post<{ token: string }>(API_BASE_URL + "/api/session", { email: e, password }));
+        const r = await firstValueFrom(this.http.post<{ token: string; allowedParents?: string[]; allowedSubs?: string[]; allowedStates?: string[] }>(API_BASE_URL + "/api/session", { email: e, password }));
         if (!r || !r.token) return null;
-        return this.establish(u, e, r.token);
+        return this.establish(u, e, r.token, { allowedParents: r.allowedParents || [], allowedSubs: r.allowedSubs || [], allowedStates: r.allowedStates || [] });
       } catch {
         return null;
       }
@@ -68,8 +68,9 @@ export class AuthService {
 
   token(): string { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } }
 
-  private establish(u: DemoUser | undefined, email: string, token: string): Session {
-    const session: Session = u ? { email: u.email, name: u.name, role: u.role, vendorId: u.vendorId } : { email, name: email, role: "vendor" };
+  private establish(u: DemoUser | undefined, email: string, token: string, scope?: Partial<Session>): Session {
+    const base: Session = u ? { email: u.email, name: u.name, role: u.role, vendorId: u.vendorId } : { email, name: email, role: "vendor" };
+    const session: Session = { ...base, ...(scope || {}) };
     try {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
       if (token) sessionStorage.setItem(TOKEN_KEY, token);
