@@ -65,7 +65,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
               <app-multiselect label="Parent categories" allLabel="All categories" [options]="parentOptions" [selected]="edit.parents" (selectedChange)="edit.parents=$event"></app-multiselect>
               <app-multiselect label="Sub-categories" allLabel="All sub-categories" [options]="subOptions" [selected]="edit.subs" (selectedChange)="edit.subs=$event"></app-multiselect>
               <app-multiselect label="Buying groups" allLabel="All groups" [search]="false" [options]="buyingGroupOptions" [selected]="edit.buyingGroups" (selectedChange)="edit.buyingGroups=$event"></app-multiselect>
-              <app-multiselect label="States" allLabel="All states" [options]="stateOptions" [selected]="edit.states" (selectedChange)="edit.states=$event"></app-multiselect>
+              <app-multiselect label="States" allLabel="All states" [options]="stateOptions" [labels]="stateLabels" [selected]="edit.states" (selectedChange)="edit.states=$event"></app-multiselect>
             </div>
 
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Permissions</div>
@@ -111,9 +111,10 @@ export class UserDetailComponent implements OnInit {
   user: VUser | undefined = this.va.getUser(this.email);
   perms = this.user ? Object.keys(this.user.perms) : [];
   dashboards = DASHBOARDS;
-  parentOptions = this.an.parentCats;
+  get parentOptions(): string[] { return this.an.parentCats; }
   buyingGroupOptions = this.an.buyingGroups;
-  stateOptions = this.an.states;
+  get stateOptions(): string[] { return this.an.states; }
+  get stateLabels(): Record<string, string> { return this.an.stateLabels; }
   catalog = this.an.brandList;
   stats = this.activity.userBreakdown([this.email], 365)[0];
   brandQuery = "";
@@ -137,6 +138,7 @@ export class UserDetailComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
+    this.an.ready();
     await this.va.refresh();
     this.user = this.va.getUser(this.email);
     this.perms = this.user ? Object.keys(this.user.perms) : this.perms;

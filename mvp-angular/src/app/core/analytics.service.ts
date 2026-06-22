@@ -1,5 +1,9 @@
-import { Injectable } from "@angular/core";
+import { Injectable, inject } from "@angular/core";
+import { HttpClient } from "@angular/common/http";
+import { firstValueFrom } from "rxjs";
 import { DEALERS, REGIONS } from "./data.service";
+import { AuthService } from "./auth.service";
+import { DATA_MODE, API_BASE_URL } from "./app-config";
 
 export interface AFilter {
   brand: string; // viewed brand name, or "admin"
@@ -657,14 +661,60 @@ function sum<T>(rows: T[], f: (r: T) => number): number { let s = 0; for (const 
 
 interface Item { brand: string; model: string; desc: string; parent: string; subcat: string; units: number; sell: number; sales: number; }
 
+/** 2-letter US state/territory code -> full name (for friendly display of raw state codes). */
+const STATE_BY_CODE: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado",
+  CT: "Connecticut", DE: "Delaware", DC: "District of Columbia", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky",
+  LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota",
+  MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire",
+  NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota",
+  OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia",
+  WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming", PR: "Puerto Rico",
+};
+
 @Injectable({ providedIn: "root" })
 export class AnalyticsService {
-  readonly parentCats = PARENT_CATS;
-  readonly subcats = SUBCATS;
+  private http = inject(HttpClient);
+  private auth = inject(AuthService);
+  private _meta: { parents: string[]; subcats: { name: string; parent: string }[]; states: string[] } | null = null;
+  private _loading: Promise<void> | null = null;
+
   readonly buyingGroups = BUYING_GROUPS;
-  readonly states = STATES;
   readonly brandList = BRANDS;
   private items: Item[] = this.build();
+
+  // Filter option lists: live (from /api/meta) when loaded, else the bundled fallback lists.
+  get parentCats(): string[] { return this._meta && this._meta.parents.length ? this._meta.parents : PARENT_CATS; }
+  get subcats(): { name: string; parent: string }[] { return this._meta && this._meta.subcats.length ? this._meta.subcats : SUBCATS; }
+  get states(): string[] { return this._meta && this._meta.states.length ? this._meta.states : STATES; }
+  /** value -> display label for states: map 2-letter codes to full names; leave full names untouched. */
+  private _stateLabels: Record<string, string> | null = null;
+  get stateLabels(): Record<string, string> {
+    if (!this._stateLabels) {
+      const m: Record<string, string> = {};
+      for (const s of this.states) { const up = String(s).trim().toUpperCase(); if (up.length === 2 && STATE_BY_CODE[up]) m[s] = STATE_BY_CODE[up]; }
+      this._stateLabels = m;
+    }
+    return this._stateLabels;
+  }
+
+  /** Resolves once live filter options are loaded (api mode); immediate otherwise. Safe to call repeatedly. */
+  ready(): Promise<void> {
+    if (DATA_MODE !== "api" || this._meta) return Promise.resolve();
+    if (!this._loading) this._loading = this.loadMeta().then((ok) => { if (!ok) this._loading = null; });
+    return this._loading;
+  }
+  private async loadMeta(): Promise<boolean> {
+    const t = this.auth.token();
+    if (!t) return false;
+    try {
+      const d = await firstValueFrom(this.http.get<{ parents: string[]; subcats: { name: string; parent: string }[]; states: string[] }>(API_BASE_URL + "/api/meta", { headers: { Authorization: "Bearer " + t } }));
+      if (d && Array.isArray(d.parents)) { this._meta = { parents: d.parents || [], subcats: d.subcats || [], states: d.states || [] }; this._stateLabels = null; return true; }
+    } catch { /* keep the bundled fallback lists */ }
+    return false;
+  }
 
   private build(): Item[] {
     const out: Item[] = [];
@@ -689,15 +739,18 @@ export class AnalyticsService {
     const ps = parents && parents.length ? new Set(parents) : null;
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const s of SUBCATS) if (!ps || ps.has(s.parent)) { if (!seen.has(s.name)) { seen.add(s.name); out.push(s.name); } }
+    for (const s of this.subcats) if (!ps || ps.has(s.parent)) { if (!seen.has(s.name)) { seen.add(s.name); out.push(s.name); } }
     return out.sort((a, b) => a.localeCompare(b));
   }
 
   /** Parent categories a brand/user is allowed to see (admin -> all). */
-  visibleParentsFor(brand: string, restrict?: string[]): string[] {
-    if (restrict && restrict.length) return PARENT_CATS.filter((p) => restrict.includes(p));
-    if (brand === "admin" || !brand) return PARENT_CATS;
-    return PARENT_CATS.filter((p, i) => i < 10 || rng(brand + "vis" + p) > 0.45);
+  visibleParentsFor(brand: string, restrict?: string[], liveAll = false): string[] {
+    const all = this.parentCats;
+    if (restrict && restrict.length) return all.filter((p) => restrict.includes(p));
+    // liveAll: in api mode show every category (real data); the per-brand subset below is a
+    // synthetic-demo affectation only and must not clip the live category list.
+    if (liveAll || brand === "admin" || !brand) return all;
+    return all.filter((p, i) => i < 10 || rng(brand + "vis" + p) > 0.45);
   }
 
   private filtered(f: AFilter): Item[] {

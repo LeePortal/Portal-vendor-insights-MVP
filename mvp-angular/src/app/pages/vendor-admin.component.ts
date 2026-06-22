@@ -114,7 +114,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
           <app-multiselect label="Parent categories" allLabel="All categories" [options]="parentOptions" [selected]="uForm.parents" (selectedChange)="uForm.parents=$event"></app-multiselect>
           <app-multiselect label="Sub-categories" allLabel="All sub-categories" [options]="subOptions(uForm.parents)" [selected]="uForm.subs" (selectedChange)="uForm.subs=$event"></app-multiselect>
           <app-multiselect label="Buying groups" allLabel="All groups" [search]="false" [options]="buyingGroupOptions" [selected]="uForm.buyingGroups" (selectedChange)="uForm.buyingGroups=$event"></app-multiselect>
-          <app-multiselect label="States" allLabel="All states" [options]="stateOptions" [selected]="uForm.states" (selectedChange)="uForm.states=$event"></app-multiselect>
+          <app-multiselect label="States" allLabel="All states" [options]="stateOptions" [labels]="stateLabels" [selected]="uForm.states" (selectedChange)="uForm.states=$event"></app-multiselect>
         </div>
         <div style="font-size:12px;font-weight:700;margin-bottom:2px">Permissions</div>
         <div style="margin-bottom:8px"><div class="perm-row" *ngFor="let p of permKeys"><span>{{ p }}</span><label class="switch"><input type="checkbox" [checked]="uForm.perms[p]" (change)="uForm.perms[p]=!uForm.perms[p]" /><span class="track"></span></label></div></div>
@@ -132,9 +132,10 @@ export class VendorAdminComponent implements OnInit {
 
   permKeys = USER_PERMISSIONS;
   catalog = this.an.brandList;
-  parentOptions = this.an.parentCats;
+  get parentOptions(): string[] { return this.an.parentCats; }
   buyingGroupOptions = this.an.buyingGroups;
-  stateOptions = this.an.states;
+  get stateOptions(): string[] { return this.an.states; }
+  get stateLabels(): Record<string, string> { return this.an.stateLabels; }
   sortKey = "name";
   sortDir = 1;
   expanded: string | null = null;
@@ -148,7 +149,7 @@ export class VendorAdminComponent implements OnInit {
   uForm = this.blankUser();
   uQuery = "";
 
-  async ngOnInit(): Promise<void> { await this.vs.refresh(); }
+  async ngOnInit(): Promise<void> { this.an.ready(); await this.vs.refresh(); }
 
   get companies(): Company[] { return this.vs.listCompanies(); }
   get sortedCompanies(): Company[] {

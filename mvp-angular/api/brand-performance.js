@@ -191,7 +191,9 @@ module.exports = async (req, res) => {
         `SELECT subcat, SUM(total_sell) AS sales, SUM(quantity) AS units
          FROM ${FACT} WHERE ${whereH} GROUP BY subcat ORDER BY sales DESC`, fb.vals),
       p.query(
-        `SELECT brand, model, LEFT(MAX(name), 90) AS name, SUM(total_sell) AS sales, SUM(quantity) AS units
+        // NB: do NOT select `name` — that column is the DEALER COMPANY and must never reach vendor
+        // output (confidential). There is no product-description column; use subcat as the label.
+        `SELECT brand, model, MAX(subcat) AS subcat, SUM(total_sell) AS sales, SUM(quantity) AS units
          FROM ${FACT} WHERE ${whereH} GROUP BY brand, model ORDER BY sales DESC LIMIT 200`, fb.vals),
       p.query(
         `SELECT brand, DATE_TRUNC('${u}', submitted) AS period, SUM(total_sell) AS sales
@@ -216,7 +218,7 @@ module.exports = async (req, res) => {
     brandRows.forEach((b) => { b.sharePct = (b.sales / totalSales) * 100; b.unitSharePct = (b.units / totalUnits) * 100; });
 
     const itemRows = itemRes.rows.map((r) => ({
-      brand: r.brand, model: r.model, desc: r.name || r.model,
+      brand: r.brand, model: r.model, desc: r.subcat || r.model,
       sales: num(r.sales), units: num(r.units),
       sharePct: (num(r.sales) / totalSales) * 100, unitSharePct: (num(r.units) / totalUnits) * 100,
       avgSell: num(r.units) ? num(r.sales) / num(r.units) : 0,

@@ -23,7 +23,7 @@ import { FormsModule } from "@angular/forms";
         <div class="ms-list">
           <label class="ms-row" *ngFor="let o of filtered">
             <input type="checkbox" [checked]="isOn(o)" (change)="toggle(o)" />
-            <span class="ms-name">{{ o }}</span>
+            <span class="ms-name">{{ labels[o] || o }}</span>
             <a class="ms-only" (click)="only(o); $event.preventDefault(); $event.stopPropagation()">only</a>
           </label>
           <div *ngIf="!filtered.length" class="muted" style="padding:8px 6px">No matches.</div>
@@ -40,14 +40,16 @@ export class MultiSelectComponent {
   @Input() search = true;
   @Input() sort = true; // when false, preserve the caller's option order (e.g. pipeline-ordered statuses)
   @Input() disabled = false; // greyed-out placeholder (e.g. a filter whose data isn't mapped yet)
+  @Input() labels: Record<string, string> = {}; // optional value -> display label (value still emitted raw)
   @Output() selectedChange = new EventEmitter<string[]>();
   open = false;
   q = "";
 
-  get filtered(): string[] { const t = this.q.toLowerCase().trim(); const base = t ? this.options.filter((o) => o.toLowerCase().includes(t)) : this.options; return this.sort ? [...base].sort((a, b) => a.localeCompare(b)) : [...base]; }
+  private lbl(o: string): string { return this.labels[o] || o; }
+  get filtered(): string[] { const t = this.q.toLowerCase().trim(); const base = t ? this.options.filter((o) => this.lbl(o).toLowerCase().includes(t)) : this.options; return this.sort ? [...base].sort((a, b) => this.lbl(a).localeCompare(this.lbl(b))) : [...base]; }
   get summary(): string {
     if (!this.selected.length) return this.allLabel;
-    if (this.selected.length <= 2) return this.selected.join(", ");
+    if (this.selected.length <= 2) return this.selected.map((s) => this.lbl(s)).join(", ");
     return this.selected.length + " selected";
   }
   isOn(o: string): boolean { return this.selected.includes(o); }

@@ -83,7 +83,7 @@ import { MultiSelectComponent } from "../components/multiselect.component";
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
             <app-multiselect label="Parent categories" allLabel="All categories" [options]="parentOptions" [selected]="cForm.parents" (selectedChange)="cForm.parents=$event"></app-multiselect>
             <app-multiselect label="Sub-categories" allLabel="All sub-categories" [options]="subOptions(cForm.parents)" [selected]="cForm.subs" (selectedChange)="cForm.subs=$event"></app-multiselect>
-            <app-multiselect label="States" allLabel="All states" [options]="stateOptions" [selected]="cForm.states" (selectedChange)="cForm.states=$event"></app-multiselect>
+            <app-multiselect label="States" allLabel="All states" [options]="stateOptions" [labels]="stateLabels" [selected]="cForm.states" (selectedChange)="cForm.states=$event"></app-multiselect>
           </div>
           <div style="font-size:12px;font-weight:700;margin-bottom:2px">Default permissions</div>
           <div style="margin-bottom:14px"><div class="perm-row" *ngFor="let p of permKeys"><span>{{ p }}</span><label class="switch"><input type="checkbox" [checked]="cForm.perms[p]" (change)="cForm.perms[p]=!cForm.perms[p]" /><span class="track"></span></label></div></div>
@@ -111,8 +111,9 @@ export class VendorLandingComponent implements OnInit {
 
   permKeys = USER_PERMISSIONS;
   catalog = this.an.brandList;
-  parentOptions = this.an.parentCats;
-  stateOptions = this.an.states;
+  get parentOptions(): string[] { return this.an.parentCats; }
+  get stateOptions(): string[] { return this.an.states; }
+  get stateLabels(): Record<string, string> { return this.an.stateLabels; }
   company: Company | undefined;
   users: VUser[] = [];
   logins: Record<string, { count: number; last: number }> = {};
@@ -123,6 +124,7 @@ export class VendorLandingComponent implements OnInit {
   cQuery = "";
 
   async ngOnInit(): Promise<void> {
+    this.an.ready();
     await this.vs.refresh();
     const name = this.route.snapshot.paramMap.get("name") || "";
     this.company = this.vs.getCompany(name);

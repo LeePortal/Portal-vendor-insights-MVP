@@ -59,7 +59,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <app-multiselect label="Parent category" allLabel="All categories" [options]="parentOptions" [selected]="parents" (selectedChange)="onParents($event)"></app-multiselect>
       <app-multiselect label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="subs = $event; rebuild()"></app-multiselect>
       <app-multiselect label="Buying group" [allLabel]="dataMode === 'api' ? 'Not mapped yet' : 'All buying groups'" [disabled]="dataMode === 'api'" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
-      <app-multiselect label="State" allLabel="All states" [options]="stateOptions" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
+      <app-multiselect label="State" allLabel="All states" [options]="stateOptions" [labels]="stateLabels" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
       <app-multiselect *ngIf="dataMode === 'api'" label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
       <div class="filt"><label>Normalize data <span class="info-i" title="Shows only dealers active in both the selected window and the same window a year earlier — for a true year-over-year comparison.">&#9432;</span></label>
         <label class="switch"><input type="checkbox" [checked]="normalize" (change)="normalize = !normalize; rebuild()" /><span class="track"></span></label>
@@ -250,7 +250,8 @@ export class DashboardComponent implements OnInit {
   today = new Date().toISOString().slice(0, 10);
   minDate = "2022-01-01";
   buyingGroupOptions = this.an.buyingGroups;
-  stateOptions = this.an.states;
+  get stateOptions(): string[] { return this.an.states; }
+  get stateLabels(): Record<string, string> { return this.an.stateLabels; }
   statusOptions = ["Completed", "Accepted", "Submitted", "Opened", "Draft", "Changes Required", "Declined", "Expired", "Email Failed"];
   restrictParents: string[] = [];
 
@@ -292,7 +293,8 @@ export class DashboardComponent implements OnInit {
   loading = false;
   firstLoad = true;
 
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
+    await this.an.ready();
     const id = this.route.snapshot.paramMap.get("id") || "overview";
     this.dashId = id;
     this.title = (DASHBOARDS.find((d) => d.id === id)?.name || "Brand Performance Overview");
@@ -307,7 +309,7 @@ export class DashboardComponent implements OnInit {
     this.rebuild(true);
   }
 
-  get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents); }
+  get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents, this.dataMode === "api"); }
   get subOptions(): string[] { return this.parents.length ? this.an.subsForParents(this.parents) : []; }
 
   /** Pre-select every category/sub-category the user is allowed to see (so nothing looks hidden). */
