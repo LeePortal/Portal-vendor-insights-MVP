@@ -87,7 +87,8 @@ function xpool() {
 function resolveTenant(claims, req) {
   if (claims.role === "admin") {
     const q = req.query && req.query.brand ? String(req.query.brand) : "";
-    return { brand: q && q !== "admin" ? q : "Sonos", allowedParents: [], allowedSubs: [], allowedStates: [] };
+    // Admin is market-wide: a specific ?brand= scopes to it; otherwise "" = all filtered brands.
+    return { brand: q && q !== "admin" ? q : "", allowedParents: [], allowedSubs: [], allowedStates: [] };
   }
   const arr = (v) => (Array.isArray(v) ? v : []);
   return { brand: claims.brand, allowedParents: arr(claims.allowedParents), allowedSubs: arr(claims.allowedSubs), allowedStates: arr(claims.allowedStates) };
@@ -171,8 +172,11 @@ module.exports = async (req, res) => {
       : "";
     const whereH = `${fb.where} AND ${win("submitted")}${normCond}`;
     const seriesWhere = `${fb.where} AND submitted IS NOT NULL AND ${win("submitted")}${normCond}`;
-    const kvals = fb.vals.slice(); kvals.push(tenant.brand);
-    const bp = `$${kvals.length}`;
+    const kvals = fb.vals.slice();
+    // Brand-scoped KPIs for a vendor (or an admin viewing one brand); for an admin viewing ALL brands
+    // (brand === "") the KPI scorecard sums the whole filtered selection instead.
+    let brandClause = "";
+    if (tenant.brand) { kvals.push(tenant.brand); brandClause = ` AND brand = $${kvals.length}`; }
 
     // KPI windows: headline = the selected Date Range window; YoY compares it to the same window one year earlier.
     const headSum = (m) => `SUM(CASE WHEN ${win("submitted")} THEN ${m} ELSE 0 END)`;
@@ -206,7 +210,7 @@ module.exports = async (req, res) => {
                 ${curSum("quantity")} AS un_cur, ${prevSum("quantity")} AS un_prev,
                 ${curCnt("proposalid")} AS prop_cur, ${prevCnt("proposalid")} AS prop_prev,
                 ${curCnt("dealerid")} AS deal_cur, ${prevCnt("dealerid")} AS deal_prev
-         FROM ${FACT} WHERE ${fb.where} AND brand = ${bp}${normCond}`, kvals),
+         FROM ${FACT} WHERE ${fb.where}${brandClause}${normCond}`, kvals),
     ]);
 
     const brandRows = brandRes.rows.map((r) => ({
@@ -270,7 +274,8 @@ module.exports = async (req, res) => {
     f.states = effList(f.states, tenant.allowedStates);
 
     let won = [], lost = [], submitted = [], accepted = [];
-    try {
+    // Competitive displacement & proposal funnel are per-brand; skip for an admin all-brands view.
+    if (tenant.brand) try {
       const xp = xpool();
       // filter clause builder. alias '' = no prefix; withStatus only for displacement.
       const flt = (alias, start, withStatus) => {

@@ -34,12 +34,6 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="filterbar" style="align-items:flex-end">
-      <div class="filt" *ngIf="isAdmin"><label>View as</label>
-        <select class="minput" [value]="viewAs" (change)="setView($any($event.target).value)">
-          <option value="admin">Admin (all access)</option>
-          <option *ngFor="let b of allBrands" [value]="b">{{ b }}</option>
-        </select>
-      </div>
       <div class="filt"><label>Aggregation</label>
         <div class="tgl">
           <button *ngFor="let a of aggs" [class.on]="agg === a" (click)="agg = a; rebuild()">{{ a | titlecase }}</button>
@@ -86,7 +80,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div class="dash-body" [class.updating]="loading">
 
     <div class="grid c4" style="margin-bottom:16px">
-      <div class="pcard kpi"><div class="label">Brand Revenue</div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
+      <div class="pcard kpi"><div class="label">{{ isAdmin ? 'Revenue' : 'Brand Revenue' }}</div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
       <div class="pcard kpi"><div class="label">Units Sold</div><div class="value">{{ num(kpis.units) }}</div><div class="delta" [style.color]="dcol(kpis.unitsYoY)">{{ yoyStr(kpis.unitsYoY) }} YoY</div></div>
       <div class="pcard kpi"><div class="label">Number of Proposals</div><div class="value">{{ num(kpis.proposals) }}</div><div class="delta" [style.color]="dcol(kpis.proposalsYoY)">{{ yoyStr(kpis.proposalsYoY) }} YoY</div></div>
       <div class="pcard kpi"><div class="label">Active Dealers</div><div class="value">{{ num(kpis.dealers) }}</div><div class="delta" [style.color]="dcol(kpis.dealersYoY)">{{ yoyStr(kpis.dealersYoY) }} YoY</div></div>
@@ -301,9 +295,6 @@ export class DashboardComponent implements OnInit {
     if (!this.isAdmin) {
       this.viewAs = this.data.getVendor(this.session.vendorId || "")?.name || this.allBrands[0];
       this.restrictParents = this.session.allowedParents ?? this.va.getUser(this.session.email)?.parents ?? [];
-    } else {
-      const v = this.route.snapshot.queryParamMap.get("view");
-      if (v) this.viewAs = this.data.getVendor(v)?.name || "admin";
     }
     this.selectAllCats();
     this.rebuild(true);
@@ -405,7 +396,6 @@ export class DashboardComponent implements OnInit {
   }
 
   onParents(v: string[]): void { this.parents = v; this.subs = [...this.subOptions]; this.rebuild(); }
-  setView(v: string): void { this.viewAs = v; this.selectAllCats(); this.rebuild(true); }
   reset(): void { this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.fromDate = ""; this.toDate = ""; this.selectAllCats(); this.rebuild(true); }
   toggleSub(): void { this.subSvc.toggle(this.dashId); }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
