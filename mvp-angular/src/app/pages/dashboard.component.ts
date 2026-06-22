@@ -13,6 +13,7 @@ import { DATA_MODE } from "../core/app-config";
 import { TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSeries, PALETTE } from "../components/charts.component";
 import { MultiSelectComponent } from "../components/multiselect.component";
 import { PORTAL_WORDMARK_DATA_URI } from "../core/report-logo";
+import { SubscriptionService } from "../core/subscription.service";
 
 interface Widget { title: string; value: string; yoy: number; points: DualPoint[]; hasBrand: boolean; vfmt: "money" | "pct" | "num"; ylabel: string; }
 
@@ -232,6 +233,7 @@ export class DashboardComponent implements OnInit {
   private src = inject(BrandPerformanceSource);
   private dl = inject(DownloadService);
   private va = inject(VendorAdminService);
+  private subSvc = inject(SubscriptionService);
 
   session = this.auth.session()!;
   isAdmin = this.session.role === "admin";
@@ -254,7 +256,8 @@ export class DashboardComponent implements OnInit {
   states: string[] = [];
   readonly defaultStatuses = ["Accepted", "Completed", "Submitted"];
   statuses: string[] = [...this.defaultStatuses];
-  subscribed = false;
+  dashId = "overview";
+  get subscribed(): boolean { return this.subSvc.isSubscribed(this.dashId); }
 
   brandRows: BrandShareRow[] = [];
   itemRows: ItemRow[] = [];
@@ -281,6 +284,7 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get("id") || "overview";
+    this.dashId = id;
     this.title = (DASHBOARDS.find((d) => d.id === id)?.name || "Brand Performance Overview");
     if (!this.isAdmin) {
       this.viewAs = this.data.getVendor(this.session.vendorId || "")?.name || this.allBrands[0];
@@ -370,7 +374,7 @@ export class DashboardComponent implements OnInit {
   onParents(v: string[]): void { this.parents = v; this.subs = this.subs.filter((s) => this.subOptions.includes(s)); this.rebuild(); }
   setView(v: string): void { this.viewAs = v; this.parents = []; this.subs = []; this.rebuild(true); }
   reset(): void { this.parents = []; this.subs = []; this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.rebuild(true); }
-  toggleSub(): void { this.subscribed = !this.subscribed; }
+  toggleSub(): void { this.subSvc.toggle(this.dashId); }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }
 

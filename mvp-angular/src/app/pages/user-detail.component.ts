@@ -76,7 +76,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
           </div>
         </div>
 
-        <div class="pcard"><div class="hd"><div class="t">Report subscriptions</div><div class="s">Dashboards emailed to this user on a schedule</div></div>
+        <div class="pcard"><div class="hd"><div class="t">Report subscriptions <span class="muted" style="font-weight:400">· {{ u.subscriptions.length }} active</span></div><div class="s">Dashboards emailed to this user on a schedule. Email sending is flagged for the dev team.</div></div>
           <div class="bd">
             <div class="perm-row" *ngFor="let d of dashboards">
               <span>{{ d.name }}<div class="muted" style="font-size:11px">{{ d.description }}</div></span>

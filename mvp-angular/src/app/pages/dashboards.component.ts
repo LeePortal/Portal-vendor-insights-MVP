@@ -5,6 +5,7 @@ import { AuthService } from "../core/auth.service";
 import { DataService } from "../core/data.service";
 import { DASHBOARD_GROUPS, DashGroup, DashCard } from "../core/dashboard-catalog";
 import { CustomDashboardService } from "../core/custom-dashboard.service";
+import { SubscriptionService } from "../core/subscription.service";
 
 @Component({
   selector: "app-dashboards",
@@ -12,9 +13,10 @@ import { CustomDashboardService } from "../core/custom-dashboard.service";
   imports: [CommonModule, RouterLink],
   template: `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:center">
-      <div><h1>Dashboards</h1><p>All your Portal dashboards in one place.</p></div>
+      <div><h1>Dashboards</h1><p>All your Portal dashboards in one place. <span class="muted">Toggle the switch to receive a dashboard by scheduled email.</span></p></div>
       <span class="badge-sample">SAMPLE DATA</span>
     </div>
+    <p class="muted" style="font-size:12px;margin:-4px 0 14px">Subscriptions are saved to your account. <b>Note:</b> the scheduled-email delivery itself is not wired up yet — flagged for the dev team.</p>
 
     <ng-container *ngFor="let g of groups">
       <h2 class="dash-group">{{ g.name }}</h2>
@@ -25,7 +27,7 @@ import { CustomDashboardService } from "../core/custom-dashboard.service";
             <p class="muted" style="margin:8px 0 12px;font-size:13px">{{ c.description }}</p>
             <div style="display:flex;justify-content:space-between;align-items:center">
               <a style="color:var(--accent);font-weight:600;font-size:13px" [routerLink]="c.route" [queryParams]="qp(c)">Open dashboard →</a>
-              <label class="switch" *ngIf="!g.adminOnly" title="Subscribe to email delivery"><input type="checkbox" [checked]="subs.has(c.id)" (change)="toggle(c.id)" /><span class="track"></span></label>
+              <label class="switch" *ngIf="!g.adminOnly" title="Subscribe to email delivery"><input type="checkbox" [checked]="subSvc.isSubscribed(c.id)" (change)="subSvc.toggle(c.id)" /><span class="track"></span></label>
             </div>
           </div>
         </div>
@@ -50,14 +52,12 @@ export class DashboardsComponent {
   private auth = inject(AuthService);
   private data = inject(DataService);
   private cds = inject(CustomDashboardService);
+  subSvc = inject(SubscriptionService);
   session = this.auth.session()!;
   isAdmin = this.session.role === "admin";
   vendorId = this.isAdmin ? this.data.listVendors()[0].id : this.session.vendorId!;
   groups: DashGroup[] = DASHBOARD_GROUPS.filter((g) => !g.adminOnly || this.isAdmin);
   custom = this.cds.list();
-  subs = new Set<string>(this.load());
 
   qp(c: DashCard): Record<string, string> { return this.isAdmin && c.id === "overview" ? { view: this.vendorId } : {}; }
-  private load(): string[] { try { return JSON.parse(localStorage.getItem("pvi_subs") || "[]"); } catch { return []; } }
-  toggle(id: string): void { this.subs.has(id) ? this.subs.delete(id) : this.subs.add(id); try { localStorage.setItem("pvi_subs", JSON.stringify([...this.subs])); } catch { /* ignore */ } }
 }
