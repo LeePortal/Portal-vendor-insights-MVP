@@ -2,6 +2,8 @@ import { Component, inject } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { AuthService } from "../core/auth.service";
 import { DataService } from "../core/data.service";
+import { BrandPerformanceSource, HealthCheck } from "../core/brand-performance.source";
+import { DATA_MODE } from "../core/app-config";
 import { TrendChartComponent } from "../components/charts.component";
 import { fmtCompact, fmtNumber } from "../core/format";
 
@@ -20,6 +22,21 @@ interface Kp { label: string; value: string; yoy: number; }
       <span class="badge-sample">SAMPLE DATA</span>
     </div>
 
+    <div class="pcard" *ngIf="isAdmin && dataMode === 'api'" style="margin-bottom:16px">
+      <div class="hd" style="display:flex;justify-content:space-between;align-items:center">
+        <div><div class="t">System status</div><div class="s">Live-data connection health <span *ngIf="lastChecked" class="muted">· checked {{ lastChecked }}</span></div></div>
+        <button class="pbtn" (click)="loadHealth()" [disabled]="statusLoading">{{ statusLoading ? "Checking…" : "Recheck" }}</button>
+      </div>
+      <div class="bd">
+        <div *ngIf="statusLoading && !statusChecks.length" style="font-size:13px;display:flex;align-items:center;gap:10px"><span class="st-dot st-amber"></span> Checking connections…</div>
+        <div *ngFor="let c of statusChecks" style="display:flex;align-items:center;gap:10px;padding:5px 0;font-size:13px">
+          <span class="st-dot" [class.st-green]="c.status === 'up'" [class.st-amber]="c.status === 'degraded'" [class.st-red]="c.status === 'down'"></span>
+          <span style="font-weight:600;min-width:160px">{{ c.label }}</span>
+          <span class="muted">{{ c.detail }}</span>
+        </div>
+      </div>
+    </div>
+
     <div class="grid c4" style="margin-bottom:16px">
       <div class="pcard kpi" *ngFor="let kp of kpis">
         <div class="label">{{ kp.label }}</div>
@@ -33,10 +50,15 @@ interface Kp { label: string; value: string; yoy: number; }
       <div class="bd"><app-trend [points]="trendPts" yLabel="Revenue ($)" xLabel="Month" valueFormat="money"></app-trend></div>
     </div>
   `,
+  styles: [`
+    .st-dot { display:inline-block; width:11px; height:11px; border-radius:50%; background:#c9c9c9; flex:0 0 auto; box-shadow:0 0 0 3px rgba(0,0,0,0.04); }
+    .st-green { background:#1d9e75; } .st-amber { background:#f0a000; } .st-red { background:#d85a30; }
+  `],
 })
 export class HomeComponent {
   private auth = inject(AuthService);
   private data = inject(DataService);
+  private src = inject(BrandPerformanceSource);
   session = this.auth.session()!;
   isAdmin = this.session.role === "admin";
   brandName = this.isAdmin ? "Portal network" : this.data.getVendor(this.session.vendorId || "")?.name || "your brand";
@@ -44,6 +66,10 @@ export class HomeComponent {
 
   kpis: Kp[] = [];
   trendPts: { label: string; value: number }[] = [];
+  dataMode = DATA_MODE;
+  statusChecks: HealthCheck[] = [];
+  statusLoading = false;
+  lastChecked = "";
 
   constructor() {
     const CUR = { start: "2025-07-01", end: "2026-06-30" };
@@ -68,6 +94,21 @@ export class HomeComponent {
     ];
     const trends = vids.map((vid) => this.data.getRevenueTrend({ vendorId: vid, start: CUR.start, end: CUR.end }));
     this.trendPts = trends[0].map((tp, i) => ({ label: tp.label, value: trends.reduce((s, t) => s + (t[i] ? t[i].revenue : 0), 0) }));
+    if (this.isAdmin && this.dataMode === "api") this.loadHealth();
+  }
+
+  async loadHealth(): Promise<void> {
+    this.statusLoading = true;
+    try {
+      const h = await this.src.health();
+      this.statusChecks = [{ id: "api", label: "Data API", status: "up", detail: "Reachable" }, ...h.checks];
+      this.lastChecked = new Date(h.ts).toLocaleTimeString();
+    } catch {
+      this.statusChecks = [{ id: "api", label: "Data API", status: "down", detail: "Unreachable" }];
+      this.lastChecked = new Date().toLocaleTimeString();
+    } finally {
+      this.statusLoading = false;
+    }
   }
 
   absPct(n: number): string { return Math.abs(n).toFixed(1) + "%"; }

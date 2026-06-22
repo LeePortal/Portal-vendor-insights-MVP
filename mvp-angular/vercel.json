@@ -4,6 +4,6 @@
   "buildCommand": "npm run build",
   "installCommand": "rm -f package-lock.json && npm install",
   "outputDirectory": "dist/portal-vendor-insights/browser",
-  "functions": { "api/brand-performance.js": { "maxDuration": 60 }, "api/proposal-export.js": { "maxDuration": 60 }, "api/report-pdf.js": { "maxDuration": 60, "memory": 1024 } },
+  "functions": { "api/brand-performance.js": { "maxDuration": 60 }, "api/proposal-export.js": { "maxDuration": 60 }, "api/report-pdf.js": { "maxDuration": 60, "memory": 1024 }, "api/health.js": { "maxDuration": 15 }, "api/session.js": { "maxDuration": 10 } },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

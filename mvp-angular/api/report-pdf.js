@@ -11,6 +11,7 @@
  */
 // @sparticuz/chromium and puppeteer-core are ESM; load them via dynamic import() so this CommonJS
 // function gets the correct module shape (.default), then use them normally.
+const { authClaims } = require("../lib/auth");
 
 async function readBody(req) {
   if (req.body !== undefined && req.body !== null) {
@@ -30,6 +31,7 @@ module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  if (!authClaims(req)) return res.status(401).json({ error: "Unauthorized" });
 
   let browser;
   try {

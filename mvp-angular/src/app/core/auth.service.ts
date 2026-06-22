@@ -1,19 +1,24 @@
 import { Injectable, inject } from "@angular/core";
+import { HttpClient } from "@angular/common/http";
+import { firstValueFrom } from "rxjs";
 import { Role, Session } from "./models";
 import { VENDORS } from "./data.service";
 import { ActivityService } from "./activity.service";
 import { VENDOR_CONTACTS } from "./contacts";
+import { DATA_MODE, API_BASE_URL } from "./app-config";
 
 interface DemoUser extends Session {
   password: string;
 }
 
 const SESSION_KEY = "pvi_session";
+const TOKEN_KEY = "pvi_token";
 const DEMO_PASSWORD = "demo";
 
 @Injectable({ providedIn: "root" })
 export class AuthService {
   private activity = inject(ActivityService);
+  private http = inject(HttpClient);
 
   private admins: DemoUser[] = [
     { email: "lee@portal.io", name: "Lee (Portal)", role: "admin", password: DEMO_PASSWORD },
@@ -43,15 +48,32 @@ export class AuthService {
     }
   }
 
-  login(email: string, password: string): Session | null {
-    const u = this.demoUsers.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
+  /** In live (api) mode the SERVER validates credentials and issues a signed token (real
+   *  enforcement). In synthetic/demo mode it falls back to the in-browser check. */
+  async login(email: string, password: string): Promise<Session | null> {
+    const e = email.trim().toLowerCase();
+    const u = this.demoUsers.find((x) => x.email.toLowerCase() === e);
+    if (DATA_MODE === "api") {
+      try {
+        const r = await firstValueFrom(this.http.post<{ token: string }>(API_BASE_URL + "/api/session", { email: e, password }));
+        if (!r || !r.token) return null;
+        return this.establish(u, e, r.token);
+      } catch {
+        return null;
+      }
+    }
     if (!u || password !== u.password) return null;
-    const session: Session = { email: u.email, name: u.name, role: u.role, vendorId: u.vendorId };
+    return this.establish(u, e, "");
+  }
+
+  token(): string { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } }
+
+  private establish(u: DemoUser | undefined, email: string, token: string): Session {
+    const session: Session = u ? { email: u.email, name: u.name, role: u.role, vendorId: u.vendorId } : { email, name: email, role: "vendor" };
     try {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    } catch {
-      /* ignore */
-    }
+      if (token) sessionStorage.setItem(TOKEN_KEY, token);
+    } catch { /* ignore */ }
     this.activity.log({
       vendorId: session.vendorId || "portal",
       vendorName: session.role === "admin" ? "Portal" : session.name,
@@ -73,6 +95,7 @@ export class AuthService {
   logout(): void {
     try {
       sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
     } catch {
       /* ignore */
     }

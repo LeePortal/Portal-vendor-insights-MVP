@@ -17,6 +17,7 @@
  */
 const FACT = process.env.FACT_TABLE || "public.portal_mi_data_for_redshift";
 const MAX_ROWS = 25000; // keeps the CSV under Vercel's ~4.5MB response cap
+const { authClaims } = require("../lib/auth");
 
 const HORIZON_START = {
   MTD: "DATE_TRUNC('month', GETDATE())",
@@ -67,8 +68,10 @@ function pool() {
   return _pool;
 }
 
-// TODO: replace with real auth — derive allowed categories from the verified session/JWT (Portal SSO).
-function resolveTenant(_req) { return { allowedParents: [] }; }
+// Allowed categories come from the VERIFIED token (never client input). Admins see all.
+function resolveTenant(claims) {
+  return { allowedParents: claims.role === "admin" ? [] : (Array.isArray(claims.allowedParents) ? claims.allowedParents : []) };
+}
 
 function reqFilters(req) {
   const q = req.query || {};
@@ -109,7 +112,9 @@ module.exports = async (req, res) => {
     const missing = ["REDSHIFT_HOST", "REDSHIFT_DATABASE", "REDSHIFT_USER", "REDSHIFT_PASSWORD"].filter((k) => !process.env[k]);
     if (missing.length) return res.status(500).json({ error: "Missing environment variables: " + missing.join(", ") });
 
-    const tenant = resolveTenant(req);
+    const claims = authClaims(req);
+    if (!claims) return res.status(401).json({ error: "Unauthorized" });
+    const tenant = resolveTenant(claims);
     const f = reqFilters(req);
     const fb = baseFilter(tenant, f);
     const hz = ["MTD", "QTD", "YTD", "Custom"].includes(f.horizon) ? f.horizon : "YTD";

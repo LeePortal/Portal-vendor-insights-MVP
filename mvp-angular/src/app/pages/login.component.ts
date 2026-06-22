@@ -67,8 +67,8 @@ export class LoginComponent {
 
   private validEmail(): boolean { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(this.email.trim()); }
   fill(email: string): void { this.email = email; this.password = "demo"; this.error = ""; this.notice = ""; }
-  submit(): void {
-    const s = this.auth.login(this.email, this.password);
+  async submit(): Promise<void> {
+    const s = await this.auth.login(this.email, this.password);
     if (!s) { this.error = "Invalid email or password."; this.notice = ""; return; }
     const next = this.route.snapshot.queryParamMap.get("next");
     this.router.navigateByUrl(next || (s.role === "admin" ? "/" : "/dashboards/overview"));

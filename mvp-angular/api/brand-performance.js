@@ -20,6 +20,7 @@
  *      FACT_TABLE (e.g. public.portal_mi_data_for_redshift)
  */
 const FACT = process.env.FACT_TABLE || "public.portal_mi_data_for_redshift";
+const { authClaims } = require("../lib/auth");
 
 const cache = new Map();
 const TTL_MS = 1000 * 60 * 60 * 3; // 3h
@@ -81,8 +82,15 @@ function xpool() {
   return _xpool;
 }
 
-// TODO: replace with real auth — derive viewed brand from the verified session/JWT (Portal SSO).
-function resolveTenant(_req) { return { brand: "Sonos", allowedParents: [] }; }
+// Tenant is derived from the VERIFIED token claims (never client input). Vendors are locked to
+// their own brand + allowed categories; admins may view any brand via the ?brand= param.
+function resolveTenant(claims, req) {
+  if (claims.role === "admin") {
+    const q = req.query && req.query.brand ? String(req.query.brand) : "";
+    return { brand: q && q !== "admin" ? q : "Sonos", allowedParents: [] };
+  }
+  return { brand: claims.brand, allowedParents: Array.isArray(claims.allowedParents) ? claims.allowedParents : [] };
+}
 
 function reqFilters(req) {
   const q = req.query || {};
@@ -125,7 +133,9 @@ module.exports = async (req, res) => {
     const missing = ["REDSHIFT_HOST", "REDSHIFT_DATABASE", "REDSHIFT_USER", "REDSHIFT_PASSWORD"].filter((k) => !process.env[k]);
     if (missing.length) return res.status(500).json({ error: "Missing environment variables: " + missing.join(", ") });
 
-    const tenant = resolveTenant(req);
+    const claims = authClaims(req);
+    if (!claims) return res.status(401).json({ error: "Unauthorized" });
+    const tenant = resolveTenant(claims, req);
     const f = reqFilters(req);
     const agg = AGG[f.agg] ? f.agg : "monthly";
     const key = JSON.stringify({ tenant, f, agg });

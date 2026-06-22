@@ -2,10 +2,14 @@ import { Injectable, inject } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { firstValueFrom } from "rxjs";
 import { AnalyticsService } from "./analytics.service";
+import { AuthService } from "./auth.service";
 import { BrandPerfPayload, BrandPerfFilter, ProposalKind } from "./brand-performance.contract";
 import { DATA_MODE, API_BASE_URL } from "./app-config";
 
 const KINDS: ProposalKind[] = ["value", "count", "pct", "avg"];
+
+export interface HealthCheck { id: string; label: string; status: "up" | "down" | "degraded"; detail: string; }
+export interface HealthPayload { ts: number; checks: HealthCheck[]; }
 
 /**
  * Single source for the Brand Performance Overview. In 'synthetic' mode it assembles the
@@ -17,6 +21,8 @@ const KINDS: ProposalKind[] = ["value", "count", "pct", "avg"];
 export class BrandPerformanceSource {
   private an = inject(AnalyticsService);
   private http = inject(HttpClient);
+  private auth = inject(AuthService);
+  private authHeader(): Record<string, string> { const t = this.auth.token(); return t ? { Authorization: "Bearer " + t } : {}; }
 
   async get(f: BrandPerfFilter): Promise<BrandPerfPayload> {
     if (DATA_MODE === "api") {
@@ -25,7 +31,7 @@ export class BrandPerformanceSource {
         from: f.from || "", to: f.to || "",
         parents: f.parents.join(","), subs: f.subs.join(","), buyingGroups: f.buyingGroups.join(","), states: f.states.join(","), statuses: (f.statuses || []).join(","),
       };
-      return firstValueFrom(this.http.get<BrandPerfPayload>(API_BASE_URL + "/api/brand-performance", { params }));
+      return firstValueFrom(this.http.get<BrandPerfPayload>(API_BASE_URL + "/api/brand-performance", { params, headers: this.authHeader() }));
     }
     return this.synthetic(f);
   }
@@ -41,7 +47,7 @@ export class BrandPerformanceSource {
       statuses: (f.statuses || []).join(","), horizon: f.horizon, from: f.from || "", to: f.to || "",
     };
     const resp = await firstValueFrom(
-      this.http.get(API_BASE_URL + "/api/proposal-export", { params, responseType: "text", observe: "response" }));
+      this.http.get(API_BASE_URL + "/api/proposal-export", { params, responseType: "text", observe: "response", headers: this.authHeader() }));
     return {
       csv: resp.body || "",
       rows: Number(resp.headers.get("X-Export-Rows") || 0),
@@ -56,7 +62,12 @@ export class BrandPerformanceSource {
    */
   async renderPdf(payload: { html: string; header?: string; footer?: string }): Promise<Blob> {
     return firstValueFrom(
-      this.http.post(API_BASE_URL + "/api/report-pdf", payload, { responseType: "blob" }));
+      this.http.post(API_BASE_URL + "/api/report-pdf", payload, { responseType: "blob", headers: this.authHeader() }));
+  }
+
+  /** Admin connection/health check (Redshift connectivity + data-table validation). */
+  async health(): Promise<HealthPayload> {
+    return firstValueFrom(this.http.get<HealthPayload>(API_BASE_URL + "/api/health"));
   }
 
   /** Build the exact payload from the in-browser generator (also documents the API contract). */
