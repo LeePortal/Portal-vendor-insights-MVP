@@ -16,6 +16,7 @@ export const routes: Routes = [
       { path: "dashboards/:id", redirectTo: "dashboards/overview", pathMatch: "full" },
       { path: "admin", canActivate: [adminGuard], loadComponent: () => import("./pages/admin.component").then((m) => m.AdminComponent) },
       { path: "admin/vendors", canActivate: [adminGuard], loadComponent: () => import("./pages/vendor-admin.component").then((m) => m.VendorAdminComponent) },
+      { path: "admin/vendors/company/:name", canActivate: [adminGuard], loadComponent: () => import("./pages/vendor-landing.component").then((m) => m.VendorLandingComponent) },
       { path: "admin/vendors/user/:email", canActivate: [adminGuard], loadComponent: () => import("./pages/user-detail.component").then((m) => m.UserDetailComponent) },
       { path: "profile", loadComponent: () => import("./pages/profile.component").then((m) => m.ProfileComponent) },
       { path: "premium", data: { title: "Premium Placement", subtitle: "Advertiser performance and premium placement ROI. Coming soon.", group: "Premium Placement" }, loadComponent: () => import("./pages/placeholder.component").then((m) => m.PlaceholderComponent) },

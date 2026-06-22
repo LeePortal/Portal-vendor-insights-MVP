@@ -15,10 +15,12 @@ export interface VUser {
   buyingGroups: string[];   // buying-group restriction; [] == all
   states: string[];         // state restriction; [] == all
   subscriptions: string[];  // dashboard ids this user is subscribed to
+  createdBy?: string;       // who created this user (email/name)
+  createdAt?: number;       // epoch ms when created
 }
 
 interface AdminState { companies: Company[]; users: VUser[]; logos: Record<string, string>; }
-const LS = "pvi_vendor_admin_v5";
+const LS = "pvi_vendor_admin_v6";
 const iso = (o: number) => new Date(Date.now() + o * 86_400_000).toISOString().slice(0, 10);
 const allPerms = () => Object.fromEntries(USER_PERMISSIONS.map((p) => [p, true])) as Record<string, boolean>;
 const title = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -57,6 +59,8 @@ export class VendorAdminService {
       companyName: company, brands: [...brands], perms: allPerms(), suspended: false,
       parents: [], subs: [], buyingGroups: [], states: [],
       subscriptions: i === 0 ? [...DEFAULT_SUBS] : DEFAULT_SUBS.slice(0, 1),
+      createdAt: Date.now() - (120 + i * 30) * 86_400_000,
+      createdBy: "Portal (seed)",
     };
   }
   private persist(s = this.state): void { try { localStorage.setItem(LS, JSON.stringify(s)); } catch { /* ignore */ } }
@@ -96,7 +100,7 @@ export class VendorAdminService {
   usersForCompany(name: string): VUser[] { return this.state.users.filter((u) => u.companyName === name); }
   usersForBrandName(brand: string): VUser[] { return this.state.users.filter((u) => u.brands.includes(brand)); }
   getUser(email: string): VUser | undefined { return this.state.users.find((u) => u.email.toLowerCase() === email.toLowerCase()); }
-  addUser(u: { firstName: string; lastName: string; email: string; companyName: string; brands: string[]; perms: Record<string, boolean>; parents?: string[]; subs?: string[]; buyingGroups?: string[]; states?: string[]; subscriptions?: string[] }): void {
+  addUser(u: { firstName: string; lastName: string; email: string; companyName: string; brands: string[]; perms: Record<string, boolean>; parents?: string[]; subs?: string[]; buyingGroups?: string[]; states?: string[]; subscriptions?: string[]; createdBy?: string }): void {
     const email = u.email.trim().toLowerCase();
     if (!email || this.getUser(email)) return;
     this.state.users.push({
@@ -104,6 +108,8 @@ export class VendorAdminService {
       companyName: u.companyName, brands: u.brands, perms: u.perms, suspended: false,
       parents: u.parents || [], subs: u.subs || [], buyingGroups: u.buyingGroups || [], states: u.states || [],
       subscriptions: u.subscriptions || [...DEFAULT_SUBS],
+      createdAt: Date.now(),
+      createdBy: u.createdBy || "—",
     });
     this.persist();
   }

@@ -6,6 +6,7 @@ import { DataService } from "../core/data.service";
 import { AnalyticsService } from "../core/analytics.service";
 import { MultiSelectComponent } from "../components/multiselect.component";
 import { VendorAdminService, USER_PERMISSIONS, Company } from "../core/vendor-admin.service";
+import { AuthService } from "../core/auth.service";
 
 const ORDER: Record<string, number> = { active: 0, scheduled: 1, expired: 2, none: 3, suspended: 4 };
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -33,27 +34,15 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
           </tr></thead>
           <tbody>
             <ng-container *ngFor="let c of sortedCompanies">
-              <tr (click)="toggle(c.name)" style="cursor:pointer">
-                <td style="font-weight:600"><span style="color:var(--text-muted);font-size:11px;margin-right:4px">{{ expanded === c.name ? "▾" : "▸" }}</span>{{ c.name }}</td>
-                <td><input class="minput" type="date" [value]="c.start" (click)="$event.stopPropagation()" (change)="onStart(c.name, $event)" /></td>
-                <td><input class="minput" type="date" [value]="c.end" (click)="$event.stopPropagation()" (change)="onEnd(c.name, $event)" /></td>
+              <tr [routerLink]="['/admin/vendors/company', c.name]" style="cursor:pointer">
+                <td style="font-weight:600"><span style="color:var(--text-muted);font-size:11px;margin-right:4px;cursor:pointer" (click)="toggle(c.name); $event.stopPropagation()">{{ expanded === c.name ? "▾" : "▸" }}</span>{{ c.name }}</td>
+                <td class="muted">{{ c.start | date:'mediumDate' }}</td>
+                <td class="muted">{{ c.end | date:'mediumDate' }}</td>
                 <td><span class="sub-badge" [ngClass]="vs.companyStatus(c.name)">{{ vs.companyStatus(c.name) }}</span></td>
-                <td class="num" style="white-space:nowrap">
-                  <button class="pbtn sm" (click)="openEditCompany(c); $event.stopPropagation()">Edit</button>
-                  <button class="pbtn sm danger" (click)="askDelete(c.name); $event.stopPropagation()">Delete</button>
-                </td>
+                <td class="num" style="color:var(--accent);font-weight:600;white-space:nowrap">Manage →</td>
               </tr>
               <tr *ngIf="expanded === c.name">
                 <td colspan="5" style="background:var(--surface-2);padding:12px 14px">
-                  <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px">
-                    <div class="logo-preview"><img *ngIf="logo(c.name) as l" [src]="l" [alt]="c.name" /><span *ngIf="!logo(c.name)">{{ c.name.charAt(0) }}</span></div>
-                    <div>
-                      <div style="font-weight:600;font-size:12px">Company logo</div>
-                      <div class="muted" style="font-size:11px;margin-bottom:6px">Shown on this company's dashboards &amp; reports.</div>
-                      <label class="pbtn" style="cursor:pointer;font-size:12px">{{ logo(c.name) ? "Replace logo" : "Upload logo" }}<input type="file" accept="image/*" (change)="onLogo(c.name, $event)" hidden /></label>
-                    </div>
-                    <div style="margin-left:auto;font-size:12px;color:var(--text-muted)">Default brands: <span *ngFor="let b of c.brands" class="chip on" style="margin-left:4px">{{ b }}</span></div>
-                  </div>
                   <table class="ptbl" style="margin:0">
                     <thead><tr><th>User</th><th>Visible brands</th><th>Category access</th><th>Account</th><th></th></tr></thead>
                     <tbody>
@@ -137,6 +126,7 @@ export class VendorAdminComponent {
   vs = inject(VendorAdminService);
   private data = inject(DataService);
   private an = inject(AnalyticsService);
+  private auth = inject(AuthService);
 
   permKeys = USER_PERMISSIONS;
   catalog = this.an.brandList;
@@ -168,8 +158,8 @@ export class VendorAdminComponent {
       return av < bv ? -d : av > bv ? d : 0;
     });
   }
-  get cSuggest(): string[] { const q = this.cQuery.toLowerCase().trim(); return q ? this.catalog.filter((b) => b.toLowerCase().includes(q) && !this.cForm.brands.includes(b)).slice(0, 6) : []; }
-  get uSuggest(): string[] { const q = this.uQuery.toLowerCase().trim(); return q ? this.catalog.filter((b) => b.toLowerCase().includes(q) && !this.uForm.brands.includes(b)).slice(0, 6) : []; }
+  get cSuggest(): string[] { const q = this.cQuery.toLowerCase().trim(); return q ? this.catalog.filter((b) => b.toLowerCase().startsWith(q) && !this.cForm.brands.includes(b)).slice(0, 6) : []; }
+  get uSuggest(): string[] { const q = this.uQuery.toLowerCase().trim(); return q ? this.catalog.filter((b) => b.toLowerCase().startsWith(q) && !this.uForm.brands.includes(b)).slice(0, 6) : []; }
   get validEmail(): boolean { return EMAIL_RE.test(this.uForm.email.trim()); }
   subOptions(parents: string[]): string[] { return parents.length ? this.an.subsForParents(parents) : []; }
 
@@ -208,5 +198,5 @@ export class VendorAdminComponent {
   private blankUser() { return { firstName: "", lastName: "", email: "", companyName: "", brands: [] as string[], parents: [] as string[], subs: [] as string[], buyingGroups: [] as string[], states: [] as string[], perms: Object.fromEntries(USER_PERMISSIONS.map((p) => [p, true])) as Record<string, boolean> }; }
   openUser(): void { this.uForm = this.blankUser(); this.uQuery = ""; this.showUser = true; }
   onCompany(): void { const c = this.vs.getCompany(this.uForm.companyName); if (c) { this.uForm.brands = [...c.brands]; this.uForm.perms = { ...c.perms }; } }
-  saveUser(): void { if (!this.validEmail || !this.uForm.companyName) return; this.vs.addUser(this.uForm); this.showUser = false; this.expanded = this.uForm.companyName; }
+  saveUser(): void { if (!this.validEmail || !this.uForm.companyName) return; this.vs.addUser({ ...this.uForm, createdBy: this.auth.session()?.email || "Admin" }); this.showUser = false; this.expanded = this.uForm.companyName; }
 }

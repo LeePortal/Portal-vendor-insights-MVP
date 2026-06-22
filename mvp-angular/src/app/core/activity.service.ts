@@ -156,6 +156,16 @@ export class ActivityService {
     return [...this.events].sort((a, b) => b.ts - a.ts).slice(0, limit);
   }
 
+  /** Total logins and most-recent login timestamp for a user (all time). */
+  loginInfo(email: string): { count: number; last: number } {
+    const e = email.toLowerCase();
+    let count = 0, last = 0;
+    for (const ev of this.events) {
+      if (ev.type === "login" && ev.userEmail.toLowerCase() === e) { count++; if (ev.ts > last) last = ev.ts; }
+    }
+    return { count, last };
+  }
+
   userBreakdown(emails: string[], days = 30): { email: string; logins: number; views: number; minutes: number; reportsPulled: number; csvExports: number; lastActive: number }[] {
     const ev = this.within(days);
     return emails.map((email) => {
