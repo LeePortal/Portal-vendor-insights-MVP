@@ -6,6 +6,9 @@ export interface Session {
   name: string;
   role: Role;
   vendorId?: string;
+  allowedParents?: string[];   // token scope (api mode): parent categories this user may see; [] == all
+  allowedSubs?: string[];      // token scope: sub-categories; [] == all
+  allowedStates?: string[];    // token scope: states; [] == all
 }
 
 export interface Vendor {
