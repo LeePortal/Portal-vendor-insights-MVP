@@ -28,38 +28,39 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="badge-sample">{{ dataMode === 'api' ? 'LIVE DATA' : 'SAMPLE DATA' }}</span>
         <button class="pbtn" [class.primary]="subscribed" (click)="toggleSub()">{{ subscribed ? "Subscribed" : "Subscribe" }}</button>
-        <button class="pbtn" [disabled]="csvBusy" (click)="exportCsv()">{{ csvBusy ? "Preparing…" : "⬇ Export CSV" }}</button>
-        <button class="pbtn" [disabled]="pdfBusy" (click)="pull()">{{ pdfBusy ? "Preparing…" : "Pull report" }}</button>
+        <button *ngIf="can('Export CSV')" class="pbtn" [disabled]="csvBusy" (click)="exportCsv()">{{ csvBusy ? "Preparing…" : "⬇ Export CSV" }}</button>
+        <button *ngIf="can('Pull reports')" class="pbtn" [disabled]="pdfBusy" (click)="pull()">{{ pdfBusy ? "Preparing…" : "Pull report" }}</button>
       </div>
     </div>
 
     <div class="filterbar" style="align-items:flex-end">
-      <div class="filt" style="position:relative"><label>Brand <span class="muted" style="font-weight:400">— type to find one; blank = all brands</span></label>
+      <div class="filt" *ngIf="can('Brands')" style="position:relative"><label>Brand <span class="muted" style="font-weight:400">— type to find one; blank = all brands</span></label>
         <input class="minput" [placeholder]="viewAs === 'admin' ? 'All brands' : viewAs" [(ngModel)]="brandQuery" />
         <div class="suggest" *ngIf="brandSuggest.length"><div class="sg" *ngFor="let b of brandSuggest" (click)="setBrand(b); brandQuery=''">{{ b }}</div></div>
         <div *ngIf="viewAs !== 'admin'" class="chips" style="margin-top:4px"><span class="chip on" (click)="setBrand('admin'); brandQuery=''">{{ viewAs }} ✕</span></div>
       </div>
-      <div class="filt"><label>Aggregation</label>
+      <div class="filt" *ngIf="can('Aggregation')"><label>Aggregation</label>
         <div class="tgl">
           <button *ngFor="let a of aggs" [class.on]="agg === a" (click)="agg = a; rebuild()">{{ a | titlecase }}</button>
         </div>
       </div>
-      <div class="filt"><label>Date Range</label>
+      <div class="filt" *ngIf="can('Date Range')"><label>Date Range</label>
         <div class="tgl">
           <button *ngFor="let h of horizons" [class.on]="horizon === h" (click)="setHorizon(h)">{{ h }}</button>
         </div>
       </div>
-      <div class="filt" *ngIf="horizon === 'Custom'"><label>From</label>
+      <div class="filt" *ngIf="horizon === 'Custom' && can('Date Range')"><label>From</label>
         <input class="minput" type="date" [value]="fromDate" [min]="minDate" [max]="toDate || today" (change)="onFrom($any($event.target).value)" />
       </div>
-      <div class="filt" *ngIf="horizon === 'Custom'"><label>To</label>
+      <div class="filt" *ngIf="horizon === 'Custom' && can('Date Range')"><label>To</label>
         <input class="minput" type="date" [value]="toDate" [min]="fromDate || minDate" [max]="today" (change)="onTo($any($event.target).value)" />
       </div>
-      <app-multiselect label="Parent category" allLabel="All categories" [options]="parentOptions" [selected]="parents" (selectedChange)="onParents($event)"></app-multiselect>
-      <app-multiselect label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="subs = $event; rebuild()"></app-multiselect>
-      <app-multiselect label="Buying group" [allLabel]="dataMode === 'api' ? 'Not mapped yet' : 'All buying groups'" [disabled]="dataMode === 'api'" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
-      <app-multiselect label="State" allLabel="All states" [options]="stateOptions" [labels]="stateLabels" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
-      <app-multiselect *ngIf="dataMode === 'api'" label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
+      <app-multiselect *ngIf="can('Parent Category')" label="Parent category" allLabel="All categories" [options]="parentOptions" [selected]="parents" (selectedChange)="onParents($event)"></app-multiselect>
+      <app-multiselect *ngIf="can('Subcategory')" label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="subs = $event; rebuild()"></app-multiselect>
+      <app-multiselect *ngIf="can('Buying Group')" label="Buying group" [allLabel]="dataMode === 'api' ? 'Not mapped yet' : 'All buying groups'" [disabled]="dataMode === 'api'" [search]="false" [options]="buyingGroupOptions" [selected]="buyingGroups" (selectedChange)="buyingGroups = $event; rebuild()"></app-multiselect>
+      <app-multiselect *ngIf="can('Supplier')" label="Supplier" [allLabel]="dataMode === 'api' ? 'Not mapped yet' : 'All suppliers'" [disabled]="dataMode === 'api'" [search]="false" [options]="supplierOptions" [selected]="suppliers" (selectedChange)="suppliers = $event; rebuild()"></app-multiselect>
+      <app-multiselect *ngIf="can('State')" label="State" allLabel="All states" [options]="stateOptions" [labels]="stateLabels" [selected]="states" (selectedChange)="states = $event; rebuild()"></app-multiselect>
+      <app-multiselect *ngIf="dataMode === 'api' && can('Proposal Status')" label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="statuses = $event; rebuild()"></app-multiselect>
       <div class="filt"><label>Normalize data <span class="info-i" title="Shows only dealers active in both the selected window and the same window a year earlier — for a true year-over-year comparison.">&#9432;</span></label>
         <label class="switch"><input type="checkbox" [checked]="normalize" (change)="normalize = !normalize; rebuild()" /><span class="track"></span></label>
       </div>
@@ -289,6 +290,7 @@ export class DashboardComponent implements OnInit {
   today = new Date().toISOString().slice(0, 10);
   minDate = "2022-01-01";
   buyingGroupOptions = this.an.buyingGroups;
+  supplierOptions = ["ADI Global", "Snap One", "Capitol Sales", "DOW Electronics", "Wave Electronics", "AVAD"]; // sample distributors (synthetic mode); live = unmapped (fact table has supplierid only)
   get stateOptions(): string[] { return this.an.states; }
   get stateLabels(): Record<string, string> { return this.an.stateLabels; }
   statusOptions = ["Completed", "Accepted", "Submitted", "Opened", "Draft", "Changes Required", "Declined", "Expired", "Email Failed"];
@@ -308,6 +310,7 @@ export class DashboardComponent implements OnInit {
   parents: string[] = [];
   subs: string[] = [];
   buyingGroups: string[] = [];
+  suppliers: string[] = [];
   states: string[] = [];
   readonly defaultStatuses = ["Accepted", "Completed", "Submitted"];
   statuses: string[] = [...this.defaultStatuses];
@@ -357,8 +360,14 @@ export class DashboardComponent implements OnInit {
   get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents, this.dataMode === "api"); }
   /** Brand the per-brand widgets (displacement / funnel brand line) represent: focal for admins, own brand for vendors. */
   get focusBrand(): string { return this.isAdmin ? this.viewAs : this.ownBrand; }
-  /** Live brand suggestions (every Portal brand) that START WITH what's typed; capped for the dropdown. */
-  get brandSuggest(): string[] { const q = this.brandQuery.toLowerCase().trim(); return q ? this.an.brandList.filter((b) => b.toLowerCase().startsWith(q)).slice(0, 8) : []; }
+  /** Per-user control visibility (USER_PERMISSIONS keys). Admins see every control; for a vendor a perm
+   *  explicitly set to false hides that control. Unset or true = visible. */
+  get userPerms(): Record<string, boolean> { return this.session.perms ?? {}; }
+  can(p: string): boolean { return this.isAdmin || this.userPerms[p] !== false; }
+  /** Brands this user may focus: their visible-brands allow-list if set, else every Portal brand. Admins = all. */
+  get brandUniverse(): string[] { const a = this.session.allowedBrands ?? []; return a.length ? this.an.brandList.filter((b) => a.includes(b)) : this.an.brandList; }
+  /** Live brand suggestions (within the user's allowed brands) that START WITH what's typed; capped for the dropdown. */
+  get brandSuggest(): string[] { const q = this.brandQuery.toLowerCase().trim(); return q ? this.brandUniverse.filter((b) => b.toLowerCase().startsWith(q)).slice(0, 8) : []; }
   get sortedDealers(): { name: string; city: string; state: string; isNew: boolean }[] {
     const k = this.dealerSort, d = this.dealerDir;
     return [...this.specDealers.dealers].sort((a, b) => {
@@ -383,7 +392,7 @@ export class DashboardComponent implements OnInit {
     const allP = this.parentOptions.length, allS = this.subOptions.length;
     const parents = this.parents.length && this.parents.length < allP ? this.parents : [];
     const subs = this.subs.length && this.subs.length < allS ? this.subs : [];
-    return { brand: this.viewAs, parents, subs, buyingGroups: this.buyingGroups, states: this.states, statuses: this.statuses, normalize: this.normalize, agg: this.agg, horizon: this.horizon, from: custom ? this.fromDate : "", to: custom ? this.toDate : "" };
+    return { brand: this.viewAs, parents, subs, buyingGroups: this.buyingGroups, suppliers: this.suppliers, states: this.states, statuses: this.statuses, normalize: this.normalize, agg: this.agg, horizon: this.horizon, from: custom ? this.fromDate : "", to: custom ? this.toDate : "" };
   }
   /** Date Range presets vs custom calendar. Switching to Custom seeds sensible dates (Jan 1 → today). */
   setHorizon(h: string): void {
@@ -472,7 +481,7 @@ export class DashboardComponent implements OnInit {
 
   onParents(v: string[]): void { this.parents = v; this.subs = [...this.subOptions]; this.rebuild(); }
   setBrand(v: string): void { this.viewAs = v; this.rebuild(true); }
-  reset(): void { this.buyingGroups = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.fromDate = ""; this.toDate = ""; this.selectAllCats(); this.rebuild(true); }
+  reset(): void { this.buyingGroups = []; this.suppliers = []; this.states = []; this.statuses = [...this.defaultStatuses]; this.normalize = false; this.agg = "monthly"; this.horizon = "YTD"; this.fromDate = ""; this.toDate = ""; this.selectAllCats(); this.rebuild(true); }
   toggleSub(): void { this.subSvc.toggle(this.dashId); }
   toggleLost(model: string): void { this.expandedLost = this.expandedLost === model ? null : model; }
   publish(): void { alert("Publish this dashboard by subscribing companies (admin). You can target specific companies or All. To be fleshed out."); }

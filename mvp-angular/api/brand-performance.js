@@ -86,15 +86,19 @@ function xpool() {
 // their own brand + allowed categories; admins may view any brand via the ?brand= param.
 function resolveTenant(claims, req) {
   const q = req.query && req.query.brand ? String(req.query.brand) : "";
-  const focal = q && q !== "admin" ? q : ""; // selected focal brand; "" = all filtered brands
+  let focal = q && q !== "admin" ? q : ""; // selected focal brand; "" = all filtered brands
   if (claims.role === "admin") {
     // Admin: KPIs/share follow the focal brand (or all); displacement follows the focal brand too.
-    return { brand: focal, ownBrand: "", allowedParents: [], allowedSubs: [], allowedStates: [] };
+    return { brand: focal, ownBrand: "", allowedParents: [], allowedSubs: [], allowedStates: [], allowedBrands: [] };
   }
   const arr = (v) => (Array.isArray(v) ? v : []);
-  // Vendor: KPIs/share may focus ANY brand (focal), but the category scope and the per-brand
-  // displacement/funnel stay locked to the vendor's OWN brand (competitive detail can't follow focal).
-  return { brand: focal, ownBrand: claims.brand, allowedParents: arr(claims.allowedParents), allowedSubs: arr(claims.allowedSubs), allowedStates: arr(claims.allowedStates) };
+  // Vendor focal-brand governance: the user's visible-brands act as a focal allow-list. If they have
+  // one and request a focal outside it, ignore the focal (falls back to the all-brands market view) so
+  // the request can't reach a brand they're not provisioned for. Empty allow-list = any brand. The
+  // competitive/market share tables are NOT floored by this — vendors still see all brands to compare.
+  const allowedBrands = arr(claims.allowedBrands);
+  if (allowedBrands.length && focal && !allowedBrands.includes(focal)) focal = "";
+  return { brand: focal, ownBrand: claims.brand, allowedParents: arr(claims.allowedParents), allowedSubs: arr(claims.allowedSubs), allowedStates: arr(claims.allowedStates), allowedBrands };
 }
 
 function reqFilters(req) {

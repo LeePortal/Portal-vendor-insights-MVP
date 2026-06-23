@@ -9,6 +9,8 @@ export interface Session {
   allowedParents?: string[];   // token scope (api mode): parent categories this user may see; [] == all
   allowedSubs?: string[];      // token scope: sub-categories; [] == all
   allowedStates?: string[];    // token scope: states; [] == all
+  allowedBrands?: string[];    // token scope: brands this user may focus (visible-brands allow-list); [] == any
+  perms?: Record<string, boolean>;  // control-visibility toggles (USER_PERMISSIONS); a key === false hides that control
 }
 
 export interface Vendor {

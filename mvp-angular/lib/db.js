@@ -137,14 +137,20 @@ async function getUserForLogin(email) {
   return { user, company };
 }
 
-/** Effective token scope: user override wins; empty falls back to company default; empty = all. */
+/**
+ * Effective token scope. Enforcement reads the USER ACCOUNT ONLY — the company is never referenced
+ * here. (Company values are just DEFAULTS that pre-fill a user when they're created in the admin UI;
+ * once on the user they're the single source of truth.) Empty list on a dimension = no restriction.
+ * `company` is accepted for signature compatibility but intentionally unused.
+ */
 function effective(user, company) {
-  const pick = (uArr, cArr) => (A(uArr).length ? A(uArr) : A(company ? cArr : []));
   return {
     brand: user.companyName,                       // MVP: company name == Redshift brand for the 10 vendors
-    allowedParents: pick(user.parents, company && company.parents),
-    allowedSubs: pick(user.subs, company && company.subs),
-    allowedStates: pick(user.states, company && company.states),
+    allowedParents: A(user.parents),
+    allowedSubs: A(user.subs),
+    allowedStates: A(user.states),
+    allowedBrands: A(user.brands),                 // visible-brands = focal-brand allow-list (empty = any)
+    perms: user.perms || {},                       // control-visibility toggles for the user's dashboard
     suspended: !!user.suspended,
   };
 }

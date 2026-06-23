@@ -7,7 +7,7 @@
  * Restriction fields (parents/subs/states) are EMPTY here = "all categories". Set them per-company
  * (default) or per-user (override) in the admin UI and they flow into the login token.
  */
-const PERMISSIONS = ["Brands", "Buying Group", "Parent Category", "Subcategory", "Proposal Status", "Supplier", "Aggregation", "Date Range", "Export CSV", "Pull reports"];
+const PERMISSIONS = ["Brands", "Buying Group", "Parent Category", "Subcategory", "State", "Proposal Status", "Supplier", "Aggregation", "Date Range", "Export CSV", "Pull reports"];
 const allPerms = () => Object.fromEntries(PERMISSIONS.map((p) => [p, true]));
 const isoOffset = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
 const title = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);

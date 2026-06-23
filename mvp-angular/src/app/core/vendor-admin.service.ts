@@ -8,7 +8,7 @@ import { AuthService } from "./auth.service";
 import { DATA_MODE, API_BASE_URL } from "./app-config";
 
 export type SubStatus = "active" | "expired" | "scheduled" | "none" | "suspended";
-export const USER_PERMISSIONS = ["Brands", "Buying Group", "Parent Category", "Subcategory", "Proposal Status", "Supplier", "Aggregation", "Date Range", "Export CSV", "Pull reports"];
+export const USER_PERMISSIONS = ["Brands", "Buying Group", "Parent Category", "Subcategory", "State", "Proposal Status", "Supplier", "Aggregation", "Date Range", "Export CSV", "Pull reports"];
 
 export interface Company {
   name: string; brands: string[]; perms: Record<string, boolean>;

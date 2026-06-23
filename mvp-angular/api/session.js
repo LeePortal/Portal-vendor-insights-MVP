@@ -58,23 +58,23 @@ module.exports = async (req, res) => {
     let claims = null;
 
     if (ADMINS.includes(e)) {
-      claims = { email: e, role: "admin", brand: "", allowedParents: [], allowedSubs: [], allowedStates: [] };
+      claims = { email: e, role: "admin", brand: "", allowedParents: [], allowedSubs: [], allowedStates: [], allowedBrands: [], perms: {} };
     } else {
-      // Preferred path: the vendor store (carries effective restrictions).
+      // Preferred path: the vendor store (carries effective restrictions, read from the user account only).
       if (db.isConfigured()) {
         try {
           const found = await db.getUserForLogin(e);
           if (found) {
             const eff = db.effective(found.user, found.company);
-            claims = { email: e, role: "vendor", brand: eff.brand, allowedParents: eff.allowedParents, allowedSubs: eff.allowedSubs, allowedStates: eff.allowedStates };
+            claims = { email: e, role: "vendor", brand: eff.brand, allowedParents: eff.allowedParents, allowedSubs: eff.allowedSubs, allowedStates: eff.allowedStates, allowedBrands: eff.allowedBrands, perms: eff.perms };
           }
         } catch (err) {
           console.error("session: vendor store lookup failed, trying legacy:", (err && err.message) || err);
         }
       }
-      // Fallback: legacy 10-vendor map (all categories).
+      // Fallback: legacy 10-vendor map (all categories, all brands).
       if (!claims && LEGACY_VENDORS[e]) {
-        claims = { email: e, role: "vendor", brand: LEGACY_VENDORS[e], allowedParents: [], allowedSubs: [], allowedStates: [] };
+        claims = { email: e, role: "vendor", brand: LEGACY_VENDORS[e], allowedParents: [], allowedSubs: [], allowedStates: [], allowedBrands: [], perms: {} };
       }
     }
 
@@ -82,7 +82,7 @@ module.exports = async (req, res) => {
 
     claims.exp = Math.floor(Date.now() / 1000) + 60 * 60 * 12; // 12h
     const token = sign(claims, process.env.AUTH_SECRET);
-    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates });
+    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates, allowedBrands: claims.allowedBrands, perms: claims.perms });
   } catch (e) {
     res.status(500).json({ error: String((e && e.message) || e) });
   }

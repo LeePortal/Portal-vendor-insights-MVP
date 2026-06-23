@@ -79,7 +79,7 @@ import { MultiSelectComponent } from "../components/multiselect.component";
           <input class="minput" style="width:100%;margin-bottom:6px" placeholder="Type to search brands…" [(ngModel)]="cQuery" />
           <div class="suggest" *ngIf="cSuggest.length"><div class="sg" *ngFor="let b of cSuggest" (click)="addBrand(b); cQuery=''">{{ b }}</div></div>
           <div class="chips" style="margin:6px 0 12px"><span class="chip on" *ngFor="let b of cForm.brands" (click)="removeBrand(b)">{{ b }} ✕</span></div>
-          <div style="font-size:12px;font-weight:700;margin:6px 0 4px">Default data access <span class="muted" style="font-weight:400">— inherited by new users; empty = all</span></div>
+          <div style="font-size:12px;font-weight:700;margin:6px 0 4px">Default data access <span class="muted" style="font-weight:400">— copied to new users when created; does not change existing users; empty = all</span></div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
             <app-multiselect label="Parent categories" allLabel="All categories" [options]="parentOptions" [selected]="cForm.parents" (selectedChange)="cForm.parents=$event"></app-multiselect>
             <app-multiselect label="Sub-categories" allLabel="All sub-categories" [options]="subOptions(cForm.parents)" [selected]="cForm.subs" (selectedChange)="cForm.subs=$event"></app-multiselect>

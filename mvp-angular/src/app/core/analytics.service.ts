@@ -10,6 +10,7 @@ export interface AFilter {
   parents: string[];
   subs: string[];
   buyingGroups: string[];
+  suppliers?: string[]; // distributor/supplier filter; unmapped in live mode (fact table has supplierid only, no names)
   states: string[];
   statuses?: string[]; // proposal statuses (live mode only); empty = all
   normalize: boolean;
