@@ -15,8 +15,8 @@ import { CommonModule } from "@angular/common";
   template: `
     <div class="wtools" (click)="$event.stopPropagation()">
       <div class="wt-wrap">
-        <button class="wt-btn" title="Download" type="button" (click)="menu = !menu">⤓</button>
-        <div class="wt-menu" *ngIf="menu">
+        <button class="wt-btn" [title]="chart ? 'Download' : 'Download data (CSV)'" type="button" (click)="chart ? (menu = !menu) : csvOut.emit()">⤓</button>
+        <div class="wt-menu" *ngIf="menu && chart">
           <button type="button" (click)="downloadPng()">Download PNG</button>
           <button type="button" (click)="csvOut.emit(); menu = false">Download data (CSV)</button>
         </div>
@@ -37,6 +37,7 @@ import { CommonModule } from "@angular/common";
 })
 export class WidgetToolsComponent {
   @Input() filename = "widget";
+  @Input() chart = false; // true = chart widget (offers PNG snapshot); false = table (CSV only — tables don't rasterize cleanly)
   @Output() csvOut = new EventEmitter<void>();
   menu = false;
   expanded = false;

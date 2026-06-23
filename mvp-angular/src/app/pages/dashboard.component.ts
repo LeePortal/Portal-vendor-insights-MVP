@@ -95,7 +95,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 
     <div class="pcard" style="margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
-        <div><div class="t">Revenue — period over period</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('pop')" (csvOut)="widgetCsv('pop')"></app-widget-tools><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
+        <div><div class="t">Revenue — period over period</div><app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="widgetFile('pop')" (csvOut)="widgetCsv('pop')"></app-widget-tools><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
         <div style="display:flex;gap:16px;align-items:center;flex:0 0 auto">
           <div style="text-align:right"><div style="font-size:20px;font-weight:600">{{ money(kpis.revenue) }}</div><div class="muted" style="font-size:12px">this period</div></div>
           <div class="delta" [style.color]="dcol(kpis.revenueYoY)" style="font-size:14px">{{ yoyStr(kpis.revenueYoY) }} YoY</div>
@@ -111,7 +111,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('compindex')" (csvOut)="widgetCsv('compindex')"></app-widget-tools><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
+      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="widgetFile('compindex')" (csvOut)="widgetCsv('compindex')"></app-widget-tools><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
       <div class="bd">
         <div class="comp-wrap">
           <div class="comp-list">
@@ -175,7 +175,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="submitted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Category value on Submitted proposals</h2>
     <div class="grid c2" *ngIf="submitted.length">
       <div class="pcard span2" *ngFor="let w of submitted">
-        <app-widget-tools *ngIf="!isAdmin" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
+        <app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
@@ -184,7 +184,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="accepted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Accepted &amp; Completed proposals</h2>
     <div class="grid c2" *ngIf="accepted.length">
       <div class="pcard span2" *ngFor="let w of accepted">
-        <app-widget-tools *ngIf="!isAdmin" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
+        <app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
