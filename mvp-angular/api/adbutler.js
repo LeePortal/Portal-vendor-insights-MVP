@@ -187,15 +187,7 @@ module.exports = async (req, res) => {
         width: num(c.width), height: num(c.height),
         imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
       }));
-      // Find where Ad Item (banner) ids live (/banners & /ads 404). Report candidates + a sample row.
-      const adItemProbes = [];
-      const probe = async (path, params) => {
-        try { const r = await ab(path, params); const data = Array.isArray(r) ? r : ((r && r.data) || []); const arr = Array.isArray(data) ? data : []; adItemProbes.push({ path: path + (params ? "?" + qs(params) : ""), ok: true, count: arr.length, sample: arr[0] || null }); }
-        catch (e) { adItemProbes.push({ path: path + (params ? "?" + qs(params) : ""), ok: false, error: String((e && e.message) || e).slice(0, 140) }); }
-      };
-      await probe("/reports", { type: "banner", period: "month", from, to });
-      await probe("/reports", { type: "ad", period: "month", from, to });
-      await probe("/advertisers/" + encodeURIComponent(aid) + "/banners");
+      // Confirmed: the creative id works directly as the getad.img libBID, so no Ad Item lookup is needed.
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -206,7 +198,8 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      out.debug = { creativesProbe: probes, adItemProbes, advertiserId: aid, matchedCreatives: mineC.length, note: "imageUrl = getad.img/?libBID={creativeId} (testing whether creative ids serve). If the images are broken, the real Ad Item (banner) ids come from one of adItemProbes." };
+      // Only surface diagnostics if this advertiser has no creatives to show.
+      if (!creatives.length) out.debug = { creativesProbe: probes, advertiserId: aid, totalCreatives: creativesRaw.length, matchedCreatives: mineC.length };
       return res.status(200).json(out);
     }
 

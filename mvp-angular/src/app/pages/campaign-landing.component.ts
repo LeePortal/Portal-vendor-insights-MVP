@@ -45,7 +45,7 @@ import { fmtNumber } from "../core/format";
             </div>
           </div>
           <div *ngIf="debug">
-            <div class="muted" style="font-size:11px;margin:12px 0 4px">Couldn't resolve a creative image URL — the raw AdButler banner/creative is shown so the image field can be mapped:</div>
+            <div class="muted" style="font-size:11px;margin:12px 0 4px">No creatives matched this advertiser — diagnostic:</div>
             <pre style="background:var(--surface-2);padding:10px;border-radius:6px;font-size:11px;overflow:auto;max-height:260px">{{ debug | json }}</pre>
           </div>
         </div>
