@@ -95,7 +95,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 
     <div class="pcard" style="margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
-        <div><div class="t">Revenue — period over period</div><app-widget-tools *ngIf="!isAdmin" filename="revenue-period-over-period" (csvOut)="widgetCsv('pop')"></app-widget-tools><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
+        <div><div class="t">Revenue — period over period</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('pop')" (csvOut)="widgetCsv('pop')"></app-widget-tools><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
         <div style="display:flex;gap:16px;align-items:center;flex:0 0 auto">
           <div style="text-align:right"><div style="font-size:20px;font-weight:600">{{ money(kpis.revenue) }}</div><div class="muted" style="font-size:12px">this period</div></div>
           <div class="delta" [style.color]="dcol(kpis.revenueYoY)" style="font-size:14px">{{ yoyStr(kpis.revenueYoY) }} YoY</div>
@@ -111,7 +111,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><app-widget-tools *ngIf="!isAdmin" filename="competitive-index" (csvOut)="widgetCsv('compindex')"></app-widget-tools><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
+      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('compindex')" (csvOut)="widgetCsv('compindex')"></app-widget-tools><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
       <div class="bd">
         <div class="comp-wrap">
           <div class="comp-list">
@@ -129,7 +129,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Category Share by Brand</div><app-widget-tools *ngIf="!isAdmin" filename="category-share-by-brand" (csvOut)="widgetCsv('brandshare')"></app-widget-tools><div class="s">Every brand matching the filters</div></div>
+      <div class="hd"><div class="t">Category Share by Brand</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('brandshare')" (csvOut)="widgetCsv('brandshare')"></app-widget-tools><div class="s">Every brand matching the filters</div></div>
       <div class="bd" style="max-height:380px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>#</th><th>Brand</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Unit Share %</th><th class="num">Avg Unit $</th><th class="num"># SKUs</th></tr></thead>
@@ -146,7 +146,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Category Share by Item</div><app-widget-tools *ngIf="!isAdmin" filename="category-share-by-item" (csvOut)="widgetCsv('item')"></app-widget-tools><div class="s">Every SKU matching the filters ({{ itemRows.length }})</div></div>
+      <div class="hd"><div class="t">Category Share by Item</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('item')" (csvOut)="widgetCsv('item')"></app-widget-tools><div class="s">Every SKU matching the filters ({{ itemRows.length }})</div></div>
       <div class="bd" style="max-height:420px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>#</th><th>Brand</th><th>Model</th><th>Category</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Avg Sell $</th></tr></thead>
@@ -161,7 +161,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Sub-Category Sales Breakdown</div><app-widget-tools *ngIf="!isAdmin" filename="sub-category-breakdown" (csvOut)="widgetCsv('subcat')"></app-widget-tools></div>
+      <div class="hd"><div class="t">Sub-Category Sales Breakdown</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('subcat')" (csvOut)="widgetCsv('subcat')"></app-widget-tools></div>
       <div class="bd" style="max-height:380px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>Sub-category</th><th class="num">Total Sales</th><th class="num">$ % of Category</th><th class="num"># Units</th><th class="num">Unit % of Category</th><th class="num">Avg Sell $</th></tr></thead>
@@ -175,7 +175,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="submitted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Category value on Submitted proposals</h2>
     <div class="grid c2" *ngIf="submitted.length">
       <div class="pcard span2" *ngFor="let w of submitted">
-        <app-widget-tools *ngIf="!isAdmin" [filename]="w.title" (csvOut)="dualCsv(w)"></app-widget-tools>
+        <app-widget-tools *ngIf="!isAdmin" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
@@ -184,7 +184,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="accepted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Accepted &amp; Completed proposals</h2>
     <div class="grid c2" *ngIf="accepted.length">
       <div class="pcard span2" *ngFor="let w of accepted">
-        <app-widget-tools *ngIf="!isAdmin" [filename]="w.title" (csvOut)="dualCsv(w)"></app-widget-tools>
+        <app-widget-tools *ngIf="!isAdmin" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
@@ -193,7 +193,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="(won.length || lost.length) && !isAdmin" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
     <div class="grid c2" style="align-items:start" *ngIf="(won.length || lost.length) && !isAdmin">
       <div class="pcard">
-        <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><app-widget-tools filename="business-won" (csvOut)="widgetCsv('won')"></app-widget-tools><div class="s">Line items where {{ focusBrand }} replaced a competitor</div></div>
+        <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><app-widget-tools [filename]="widgetFile('won')" (csvOut)="widgetCsv('won')"></app-widget-tools><div class="s">Line items where {{ focusBrand }} replaced a competitor</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
           <table class="ptbl">
             <thead><tr><th>Model</th><th>Sub-category</th><th class="num"># Units won</th><th class="num">$ won</th><th class="num">Competitors beaten</th></tr></thead>
@@ -206,7 +206,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
         </div>
       </div>
       <div class="pcard">
-        <div class="hd"><div class="t" style="color:var(--negative)">Business lost — you were displaced</div><app-widget-tools filename="business-lost" (csvOut)="widgetCsv('lost')"></app-widget-tools><div class="s">Click an item to see the SKUs that displaced it, ranked by units</div></div>
+        <div class="hd"><div class="t" style="color:var(--negative)">Business lost — you were displaced</div><app-widget-tools [filename]="widgetFile('lost')" (csvOut)="widgetCsv('lost')"></app-widget-tools><div class="s">Click an item to see the SKUs that displaced it, ranked by units</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
           <table class="ptbl">
             <thead><tr><th></th><th>Your model</th><th>Sub-category</th><th class="num"># Units lost</th><th class="num">$ lost</th></tr></thead>
@@ -238,7 +238,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 
     <div *ngIf="!isAdmin" class="pcard" style="margin-top:16px;margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
-        <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><app-widget-tools filename="dealers-specifying" (csvOut)="widgetCsv('dealers')"></app-widget-tools><div class="s">Not affected by filters</div></div>
+        <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><app-widget-tools [filename]="widgetFile('dealers')" (csvOut)="widgetCsv('dealers')"></app-widget-tools><div class="s">Not affected by filters</div></div>
         <div style="display:flex;gap:18px;flex:0 0 auto;text-align:right">
           <div><div style="font-size:20px;font-weight:600">{{ specDealers.count }}</div><div class="muted" style="font-size:12px">dealers</div></div>
           <div><div style="font-size:20px;font-weight:600;color:var(--positive)">{{ specDealers.newCount }}</div><div class="muted" style="font-size:12px">new</div></div>
@@ -368,27 +368,37 @@ export class DashboardComponent implements OnInit {
   get userPerms(): Record<string, boolean> { return this.session.perms ?? {}; }
   can(p: string): boolean { return this.isAdmin || this.userPerms[p] !== false; }
 
+  private readonly WIDGET_LABELS: Record<string, string> = { pop: "Revenue Period over Period", compindex: "Competitive Index", brandshare: "Category Share by Brand", item: "Category Share by Item", subcat: "Sub-Category Breakdown", won: "Business Won", lost: "Business Lost", dealers: "Dealers Specifying" };
+  /** Standard download filename (no extension), matching the main exports: "Portal Market Insights - <what> - <brand> - <user> <date>". */
+  dlName(descriptor: string): string {
+    const brand = this.viewAs === "admin" ? "All brands" : this.viewAs;
+    const user = (this.session.name || this.session.email || "").trim();
+    const date = new Date().toISOString().slice(0, 10);
+    return ("Portal Market Insights - " + descriptor + " - " + brand + (user ? " - " + user : "") + " " + date).replace(/[\\/:*?"<>|]/g, "-");
+  }
+  widgetFile(which: string): string { return this.dlName(this.WIDGET_LABELS[which] || which); }
+
   /** Per-widget data export (CSV, same UTF-8 BOM style as the main export). */
   widgetCsv(which: string): void {
     if (which === "pop") {
       const headers = ["Period", ...this.popSeries.map((s) => s.label)];
       const rows = this.popAxis.map((lbl, i) => [lbl, ...this.popSeries.map((s) => s.values[i] ?? "")] as any[]);
-      return this.downloadCsvFile("revenue-period-over-period", headers, rows);
+      return this.downloadCsvFile(this.widgetFile("pop"), headers, rows);
     }
     const map: Record<string, any[]> = {
       compindex: this.compRows, brandshare: this.brandRows, item: this.itemRows,
       subcat: this.subcatRows, won: this.won, lost: this.lost, dealers: this.specDealers.dealers,
     };
     const arr = map[which] || [];
-    if (!arr.length) return this.downloadCsvFile(which, ["(no data)"], []);
+    if (!arr.length) return this.downloadCsvFile(this.widgetFile(which), ["(no data)"], []);
     const headers = Object.keys(arr[0]).filter((k) => typeof (arr[0] as any)[k] !== "object");
     const rows = arr.map((o: any) => headers.map((h) => o[h]));
-    this.downloadCsvFile(which, headers, rows);
+    this.downloadCsvFile(this.widgetFile(which), headers, rows);
   }
   /** CSV for a proposal-funnel chart widget (Submitted / Accepted) — exports its plotted points. */
   dualCsv(w: Widget): void {
     const arr = w.points || [];
-    const name = (w.title || "widget").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "widget";
+    const name = this.dlName(w.title || "Proposal chart");
     if (!arr.length) return this.downloadCsvFile(name, ["(no data)"], []);
     const headers = Object.keys(arr[0]).filter((k) => typeof (arr[0] as any)[k] !== "object");
     const rows = arr.map((o: any) => headers.map((h) => (o as any)[h]));
@@ -530,8 +540,7 @@ export class DashboardComponent implements OnInit {
    * item-level summary the synthetic generator can produce.
    */
   async exportCsv(): Promise<void> {
-    const date = new Date().toISOString().slice(0, 10);
-    const fname = "Portal Market Insights - by proposal - " + this.viewAs + " " + date + ".csv";
+    const fname = this.dlName("by proposal") + ".csv";
     if (this.dataMode === "api") {
       this.csvBusy = true;
       this.notice = "";
@@ -562,7 +571,7 @@ export class DashboardComponent implements OnInit {
     try {
       const { html, header, footer } = this.buildReportHtml();
       const blob = await this.src.renderPdf({ html, header, footer });
-      const fname = "Portal Market Insights Report - " + this.viewAs + " " + new Date().toISOString().slice(0, 10) + ".pdf";
+      const fname = this.dlName("Report") + ".pdf";
       this.dl.request({ kind: "pdf", filename: fname, blobData: blob });
     } catch (e: any) {
       this.loadError = "Couldn't build the report PDF: " + ((e && e.message) || e);

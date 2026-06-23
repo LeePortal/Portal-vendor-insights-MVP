@@ -53,7 +53,14 @@ export class WidgetToolsComponent {
     const mod: any = await import("html2canvas");
     const h2c = mod.default || mod;
     const bg = getComputedStyle(document.body).getPropertyValue("--surface").trim() || "#ffffff";
-    const canvas = await h2c(card, { backgroundColor: bg, scale: 2, useCORS: true, logging: false });
+    const canvas = await h2c(card, {
+      backgroundColor: bg,
+      scale: 1,            // screen-resolution snapshot; scale:2 quadrupled the pixel work
+      imageTimeout: 1200,  // html2canvas waits up to 15s by default for images/fonts — that was the freeze
+      useCORS: true,
+      logging: false,
+      ignoreElements: (el: Element) => !!(el.classList && el.classList.contains("wtools")) || el.tagName === "APP-WIDGET-TOOLS",
+    });
     const a = document.createElement("a");
     a.href = canvas.toDataURL("image/png");
     a.download = this.filename + ".png";
