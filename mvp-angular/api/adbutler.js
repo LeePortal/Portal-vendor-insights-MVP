@@ -77,7 +77,7 @@ function campaignActive(c) {
 // Best-effort image URL from a banner or creative object — checks the common AdButler field names.
 function pickImageUrl(o) {
   if (!o || typeof o !== "object") return "";
-  const cands = [o.image_url, o.imageUrl, o.url, o.source, o.src, o.media_url, o.preview, o.preview_url, o.cdn_url, o.thumbnail, o.thumbnail_url, o.file, o.path, o.creative_url];
+  const cands = [o.image_url, o.imageUrl, o.url, o.source, o.src, o.media_url, o.preview, o.preview_url, o.cdn_url, o.thumbnail, o.thumbnail_url, o.file, o.path, o.creative_url, o.secure_url, o.view_url, o.served_url, o.asset_url, o.link];
   for (const c of cands) if (typeof c === "string" && /^https?:\/\//i.test(c)) return c;
   if (o.media && typeof o.media === "object") { const u = o.media.url || o.media.src || o.media.cdn_url || o.media.source; if (typeof u === "string" && /^https?:\/\//i.test(u)) return u; }
   return "";
@@ -182,8 +182,10 @@ module.exports = async (req, res) => {
       const creatives = []; let dbgDetail = null;
       for (const c of pool) {
         let imageUrl = pickImageUrl(c); let det = null;
-        if (!imageUrl && c.id != null) {
-          try { let d = await ab("/creatives/" + encodeURIComponent(String(c.id))); det = (d && d.data) ? d.data : d; imageUrl = pickImageUrl(det); } catch (e) { /* leave blank */ }
+        // image creatives resolve at the path in `self` (/creatives/image/{id}), NOT /creatives/{id}.
+        const selfPath = c.self ? String(c.self).replace(/^\/v2/, "") : (c.id != null ? "/creatives/image/" + encodeURIComponent(String(c.id)) : "");
+        if (!imageUrl && selfPath) {
+          try { let d = await ab(selfPath); det = (d && d.data) ? d.data : d; imageUrl = pickImageUrl(det); } catch (e) { /* leave blank */ }
         }
         if (!dbgDetail && det) dbgDetail = det;
         creatives.push({ bannerId: String(c.id), name: c.name || c.file_name || ("Creative " + c.id), width: num(c.width), height: num(c.height), imageUrl });
