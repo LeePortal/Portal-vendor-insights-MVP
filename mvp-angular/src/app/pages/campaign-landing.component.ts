@@ -20,18 +20,22 @@ type Period = "mtd" | "lastmonth" | "custom";
   standalone: true,
   imports: [CommonModule, RouterLink],
   styles: [`
-    .aigrid { display:flex; flex-direction:column; gap:14px; }
-    .aicard { display:flex; gap:18px; align-items:stretch; border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--surface); }
-    .aithumb { flex:0 0 250px; width:250px; min-height:240px; display:grid; place-items:center; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; overflow:hidden; text-decoration:none; }
-    .aithumb img { max-width:100%; max-height:320px; display:block; }
-    .noimg { color:var(--text-muted); font-size:12px; padding:30px; }
-    .aibody { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:14px; }
+    .aigrid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; }
+    @media (max-width:820px) { .aigrid { grid-template-columns:1fr; } }
+    .aicard { display:flex; gap:16px; align-items:stretch; border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--surface); }
+    .aithumb { flex:0 0 200px; width:200px; min-height:200px; display:grid; place-items:center; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .aithumb.zoom { cursor:zoom-in; }
+    .aithumb img { max-width:100%; max-height:300px; display:block; }
+    .noimg { color:var(--text-muted); font-size:12px; padding:24px; text-align:center; }
+    .aibody { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:12px; }
     .aihead { display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .ainame { font-size:17px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
-    .aimetrics { display:flex; flex-direction:column; gap:10px; width:170px; }
-    .stat { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:11px 14px; }
-    .stat .v { font-size:24px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text); }
+    .ainame { font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
+    .aimetrics { display:flex; flex-direction:column; gap:10px; }
+    .stat { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px 13px; }
+    .stat .v { font-size:22px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text); }
     .stat .l { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); font-weight:700; margin-top:3px; }
+    .lbx { position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:1000; display:grid; place-items:center; padding:24px; cursor:zoom-out; }
+    .lbx img { max-width:92vw; max-height:92vh; border-radius:6px; }
   `],
   template: `
     <a routerLink="/admin" class="muted" style="font-size:12px">&larr; Back to Premium Placement</a>
@@ -75,11 +79,7 @@ type Period = "mtd" | "lastmonth" | "custom";
           <div *ngIf="!shown.length" class="muted" style="font-size:13px">No {{ itemFilter === 'all' ? '' : itemFilter }} ad items for this period.</div>
           <div class="aigrid">
             <div *ngFor="let cr of shown" class="aicard">
-              <a *ngIf="cr.clickUrl" [href]="cr.clickUrl" target="_blank" rel="noopener" class="aithumb" [title]="cr.clickUrl">
-                <img *ngIf="cr.imageUrl" [src]="cr.imageUrl" [alt]="cr.name" />
-                <div *ngIf="!cr.imageUrl" class="noimg">No image</div>
-              </a>
-              <div *ngIf="!cr.clickUrl" class="aithumb">
+              <div class="aithumb" [class.zoom]="!!cr.imageUrl" (click)="cr.imageUrl && openLightbox(cr.imageUrl)" [title]="cr.imageUrl ? 'Click to enlarge' : ''">
                 <img *ngIf="cr.imageUrl" [src]="cr.imageUrl" [alt]="cr.name" />
                 <div *ngIf="!cr.imageUrl" class="noimg">No image</div>
               </div>
@@ -98,9 +98,16 @@ type Period = "mtd" | "lastmonth" | "custom";
         </div>
       </div>
     </ng-container>
+
+    <div *ngIf="lightbox" class="lbx" (click)="lightbox = null" title="Click to close">
+      <img [src]="lightbox" alt="Ad creative, full size" />
+    </div>
   `,
 })
 export class CampaignLandingComponent implements OnInit {
+  lightbox: string | null = null;
+  openLightbox(url: string): void { this.lightbox = url; }
+
   private route = inject(ActivatedRoute);
   private pp = inject(PremiumPlacementSource);
   n = fmtNumber;
