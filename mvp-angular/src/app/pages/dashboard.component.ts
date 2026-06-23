@@ -108,22 +108,6 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
     </div>
 
-    <div *ngIf="!isAdmin" class="pcard" style="margin-bottom:16px">
-      <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
-        <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><div class="s">Not affected by filters</div></div>
-        <div style="display:flex;gap:18px;flex:0 0 auto;text-align:right">
-          <div><div style="font-size:20px;font-weight:600">{{ specDealers.count }}</div><div class="muted" style="font-size:12px">dealers</div></div>
-          <div><div style="font-size:20px;font-weight:600;color:var(--positive)">{{ specDealers.newCount }}</div><div class="muted" style="font-size:12px">new</div></div>
-        </div>
-      </div>
-      <div class="bd">
-        <div *ngIf="!specDealers.count" class="muted" style="font-size:13px">No dealers specified {{ ownBrand }} in the last 30 days.</div>
-        <div *ngIf="specDealers.count" class="chips">
-          <span class="chip" *ngFor="let d of specDealers.dealers">{{ d.name }}<span *ngIf="d.isNew" style="font-size:11px;color:var(--positive);border:1px solid var(--positive);border-radius:4px;padding:0 6px;margin-left:6px">New</span></span>
-        </div>
-      </div>
-    </div>
-
     <div class="pcard" style="margin-bottom:16px">
       <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
       <div class="bd">
@@ -247,6 +231,30 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
         </div>
       </div>
     </div>
+
+    <div *ngIf="!isAdmin" class="pcard" style="margin-bottom:16px">
+      <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+        <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><div class="s">Not affected by filters</div></div>
+        <div style="display:flex;gap:18px;flex:0 0 auto;text-align:right">
+          <div><div style="font-size:20px;font-weight:600">{{ specDealers.count }}</div><div class="muted" style="font-size:12px">dealers</div></div>
+          <div><div style="font-size:20px;font-weight:600;color:var(--positive)">{{ specDealers.newCount }}</div><div class="muted" style="font-size:12px">new</div></div>
+        </div>
+      </div>
+      <div class="bd" style="max-height:380px;overflow:auto">
+        <div *ngIf="!specDealers.count" class="muted" style="font-size:13px">No dealers specified {{ ownBrand }} in the last 30 days.</div>
+        <table class="ptbl" *ngIf="specDealers.count">
+          <thead><tr><th>Dealer</th><th>City</th><th>State</th><th></th></tr></thead>
+          <tbody>
+            <tr *ngFor="let d of specDealers.dealers">
+              <td style="font-weight:600">{{ d.name }}</td>
+              <td class="muted">{{ d.city || '—' }}</td>
+              <td class="muted">{{ d.state || '—' }}</td>
+              <td><span *ngIf="d.isNew" style="font-size:11px;color:var(--positive);border:1px solid var(--positive);border-radius:4px;padding:0 6px">New</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
       </div>
     </ng-container>
     </div>
@@ -290,7 +298,7 @@ export class DashboardComponent implements OnInit {
   viewAs = "admin";
   ownBrand = "";   // the vendor's own brand (locked target for their competitive widgets)
   brandQuery = ""; // type-ahead text for the Brand filter
-  specDealers: { count: number; newCount: number; dealers: { name: string; isNew: boolean }[] } = { count: 0, newCount: 0, dealers: [] };  // vendor-only, filter-independent
+  specDealers: { count: number; newCount: number; dealers: { name: string; city: string; state: string; isNew: boolean }[] } = { count: 0, newCount: 0, dealers: [] };  // vendor-only, filter-independent
   agg = "monthly";
   horizon = "YTD";
   fromDate = "";

@@ -927,12 +927,14 @@ export class AnalyticsService {
   competitiveBrand(f: AFilter): string { return f.brand && f.brand !== "admin" ? f.brand : this.brandList[0]; }
 
   /** Synthetic "new dealers (30d)" count for offline mode (api mode uses /api/new-dealers). */
-  dealersSpeccingSynthetic(brand: string): { count: number; newCount: number; dealers: { name: string; isNew: boolean }[] } {
+  dealersSpeccingSynthetic(brand: string): { count: number; newCount: number; dealers: { name: string; city: string; state: string; isNew: boolean }[] } {
+    const LOCS = [["Austin", "TX"], ["Denver", "CO"], ["Seattle", "WA"], ["Miami", "FL"], ["Chicago", "IL"], ["Boston", "MA"], ["Atlanta", "GA"], ["Phoenix", "AZ"], ["Portland", "OR"], ["Nashville", "TN"]];
     const total = Math.min(DEALERS.length, 8 + Math.round(rng((brand || "b") + "spec") * 8));
     const start = Math.floor(rng((brand || "b") + "specs") * Math.max(1, DEALERS.length - total));
     const picked = DEALERS.slice(start, start + total);
     const newN = Math.min(picked.length, 2 + Math.round(rng((brand || "b") + "new") * 4));
-    return { count: picked.length, newCount: newN, dealers: picked.map((name, i) => ({ name, isNew: i < newN })) };
+    const dealers = picked.map((name, i) => ({ name, city: LOCS[(i + start) % LOCS.length][0], state: LOCS[(i + start) % LOCS.length][1], isNew: i < newN }));
+    return { count: picked.length, newCount: newN, dealers };
   }
 
   /** Synthetic revenue-by-period for the Home trend (api mode returns the live revByPeriod instead). */

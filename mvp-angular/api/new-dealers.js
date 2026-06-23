@@ -57,9 +57,14 @@ module.exports = async (req, res) => {
 
     const recentFrom = "DATEADD(day, -30, TRUNC(GETDATE()))";
     const priorFrom = "DATEADD(day, -120, TRUNC(GETDATE()))";
+    // The warehouse has `state`; `city` may or may not exist — detect it so the query never breaks.
+    const tbl = FACT.includes(".") ? FACT.split(".").pop() : FACT;
+    let hasCity = false;
+    try { const cc = await pool().query("SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'city' LIMIT 1", [tbl]); hasCity = cc.rows.length > 0; } catch (e) { /* assume no city column */ }
+    const cityExpr = hasCity ? "MAX(city)" : "CAST(NULL AS VARCHAR)";
     const sql =
       `WITH recent AS (
-         SELECT dealerid, MAX(name) AS dealer FROM ${FACT}
+         SELECT dealerid, MAX(name) AS dealer, MAX(state) AS state, ${cityExpr} AS city FROM ${FACT}
          WHERE brand = $1 AND COALESCE(deleted, false) = false AND submitted >= ${recentFrom}
          GROUP BY dealerid
        ),
@@ -68,11 +73,11 @@ module.exports = async (req, res) => {
          WHERE brand = $1 AND COALESCE(deleted, false) = false
            AND submitted >= ${priorFrom} AND submitted < ${recentFrom}
        )
-       SELECT r.dealerid, r.dealer, CASE WHEN p.dealerid IS NULL THEN 1 ELSE 0 END AS is_new
+       SELECT r.dealerid, r.dealer, r.city, r.state, CASE WHEN p.dealerid IS NULL THEN 1 ELSE 0 END AS is_new
        FROM recent r LEFT JOIN prior p ON r.dealerid = p.dealerid
        ORDER BY is_new DESC, r.dealer LIMIT 1000`;
     const r = await pool().query(sql, [brand]);
-    const dealers = r.rows.map((row) => ({ id: row.dealerid, name: row.dealer || "Unknown dealer", isNew: Number(row.is_new) === 1 }));
+    const dealers = r.rows.map((row) => ({ id: row.dealerid, name: row.dealer || "Unknown dealer", city: row.city || "", state: row.state || "", isNew: Number(row.is_new) === 1 }));
     const out = { count: dealers.length, newCount: dealers.filter((d) => d.isNew).length, dealers, brand };
     _cache.set(brand, { at: Date.now(), data: out });
     res.status(200).json(out);
