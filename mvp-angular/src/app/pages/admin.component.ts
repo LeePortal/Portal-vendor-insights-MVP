@@ -145,20 +145,36 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
       <!-- TODO(premium-placement): Featured Products impressions/clicks fold into ppFeaturedImpressions/ppFeaturedClicks
            once their source exists; today they are 0. Spotlight is live from AdButler via /api/adbutler. -->
       <div class="pcard" *ngIf="ppConfigured">
-        <div class="hd"><div class="t">Campaigns<span *ngIf="ppCompanyName"> — {{ ppCompanyName }}</span></div><div class="s">{{ filteredCampaigns.length }} {{ ppStatus === 'active' ? 'active' : ppStatus === 'expired' ? 'expired' : '' }} campaign(s) · impressions &amp; clicks for the selected period</div></div>
-        <div class="bd" style="max-height:480px;overflow:auto">
+        <div class="hd"><div class="t">Campaigns by company</div><div class="s">Click a company to see its campaigns · {{ ppCompanyGroups.length }} {{ ppStatus === 'active' ? 'active' : ppStatus === 'expired' ? 'expired' : '' }} compan{{ ppCompanyGroups.length === 1 ? 'y' : 'ies' }} · impressions &amp; clicks for the selected period</div></div>
+        <div class="bd" style="max-height:520px;overflow:auto">
           <div *ngIf="ppLoading" class="muted" style="font-size:13px">Loading…</div>
-          <div *ngIf="!ppLoading && !filteredCampaigns.length" class="muted" style="font-size:13px">No campaigns match the current filters.</div>
-          <table class="ptbl" *ngIf="!ppLoading && filteredCampaigns.length">
-            <thead><tr><th>Company</th><th>Campaign</th><th>Status</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
+          <div *ngIf="!ppLoading && !ppCompanyGroups.length" class="muted" style="font-size:13px">No companies match the current filters.</div>
+          <table class="ptbl" *ngIf="!ppLoading && ppCompanyGroups.length">
+            <thead><tr><th>Company</th><th class="num">Campaigns</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
             <tbody>
-              <tr *ngFor="let c of filteredCampaigns">
-                <td>{{ c.advertiserName || "—" }}</td>
-                <td style="font-weight:600">{{ c.name }}</td>
-                <td><span class="sub-badge" [ngClass]="c.active ? 'active' : 'expired'">{{ c.active ? "Active" : "Expired" }}</span></td>
-                <td class="num">{{ n(c.impressions) }}</td>
-                <td class="num">{{ n(c.clicks) }}</td>
-              </tr>
+              <ng-container *ngFor="let g of ppCompanyGroups">
+                <tr (click)="togglePpCompany(g.id)" style="cursor:pointer">
+                  <td style="font-weight:600"><span style="color:var(--text-muted);font-size:11px;margin-right:4px">{{ ppExpanded === g.id ? "▾" : "▸" }}</span>{{ g.name }}</td>
+                  <td class="num">{{ g.campaigns.length }}</td>
+                  <td class="num">{{ n(g.impressions) }}</td>
+                  <td class="num">{{ n(g.clicks) }}</td>
+                </tr>
+                <tr *ngIf="ppExpanded === g.id">
+                  <td colspan="4" style="background:var(--surface-2);padding:0">
+                    <table class="ptbl" style="margin:0">
+                      <thead><tr><th style="padding-left:30px">Campaign</th><th>Status</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
+                      <tbody>
+                        <tr *ngFor="let c of g.campaigns">
+                          <td style="padding-left:30px;font-weight:600">{{ c.name }}</td>
+                          <td><span class="sub-badge" [ngClass]="c.active ? 'active' : 'expired'">{{ c.active ? "Active" : "Expired" }}</span></td>
+                          <td class="num">{{ n(c.impressions) }}</td>
+                          <td class="num">{{ n(c.clicks) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </ng-container>
             </tbody>
           </table>
         </div>
@@ -186,6 +202,7 @@ export class AdminComponent {
   ppTo = new Date().toISOString().slice(0, 10);
   ppCompany = "";
   ppStatus: "all" | "active" | "expired" = "all";
+  ppExpanded: string | null = null;  // expanded company in the campaigns accordion
   ppAdvertisers: PpAdvertiser[] = [];
   ppAllCampaigns: PpCampaign[] = [];
   ppConfigured = true;
@@ -250,8 +267,19 @@ export class AdminComponent {
   showPp(): void { this.prod = "pp"; if (!this.ppLoaded) { this.ppLoaded = true; this.loadPpAdvertisers(); this.refreshPp(); } }
   setPpPeriod(p: "mtd" | "lastmonth" | "custom"): void { this.ppPeriod = p; this.refreshPp(); }
   onPpCustom(ev: Event, which: "s" | "e"): void { const v = (ev.target as HTMLInputElement).value; if (which === "s") this.ppFrom = v; else this.ppTo = v; if (this.ppPeriod === "custom") this.refreshPp(); }
-  onPpCompany(id: string): void { this.ppCompany = id || ""; }   // client-side filter, no refetch
+  onPpCompany(id: string): void { this.ppCompany = id || ""; this.ppExpanded = this.ppCompany || null; }  // filter + auto-expand the picked company
   setPpStatus(s: "all" | "active" | "expired"): void { this.ppStatus = s; }  // client-side filter, no refetch
+  togglePpCompany(id: string): void { this.ppExpanded = this.ppExpanded === id ? null : id; }
+  /** Filtered campaigns grouped by company, for the click-to-expand list (campaigns hidden until a company is opened). */
+  get ppCompanyGroups(): { id: string; name: string; campaigns: PpCampaign[]; impressions: number; clicks: number }[] {
+    const m = new Map<string, { id: string; name: string; campaigns: PpCampaign[]; impressions: number; clicks: number }>();
+    for (const c of this.filteredCampaigns) {
+      let g = m.get(c.advertiserId);
+      if (!g) { g = { id: c.advertiserId, name: c.advertiserName || "—", campaigns: [], impressions: 0, clicks: 0 }; m.set(c.advertiserId, g); }
+      g.campaigns.push(c); g.impressions += c.impressions; g.clicks += c.clicks;
+    }
+    return [...m.values()].sort((a, b) => b.impressions - a.impressions);
+  }
 
   private ppRange(): { from: string; to: string } {
     const now = new Date(); const ymd = (d: Date) => d.toISOString().slice(0, 10);
