@@ -115,7 +115,7 @@ export class UserDetailComponent implements OnInit {
   buyingGroupOptions = this.an.buyingGroups;
   get stateOptions(): string[] { return this.an.states; }
   get stateLabels(): Record<string, string> { return this.an.stateLabels; }
-  catalog = this.an.brandList;
+  get catalog(): string[] { return this.an.brandList; }
   stats = this.activity.userBreakdown([this.email], 365)[0];
   brandQuery = "";
   saved = false;

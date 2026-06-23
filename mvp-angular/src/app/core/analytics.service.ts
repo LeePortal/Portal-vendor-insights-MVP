@@ -678,11 +678,11 @@ const STATE_BY_CODE: Record<string, string> = {
 export class AnalyticsService {
   private http = inject(HttpClient);
   private auth = inject(AuthService);
-  private _meta: { parents: string[]; subcats: { name: string; parent: string }[]; states: string[] } | null = null;
+  private _meta: { parents: string[]; subcats: { name: string; parent: string }[]; states: string[]; brands: string[] } | null = null;
   private _loading: Promise<void> | null = null;
 
   readonly buyingGroups = BUYING_GROUPS;
-  readonly brandList = BRANDS;
+  get brandList(): string[] { return this._meta && this._meta.brands.length ? this._meta.brands : BRANDS; }
   private items: Item[] = this.build();
 
   // Filter option lists: live (from /api/meta) when loaded, else the bundled fallback lists.
@@ -710,8 +710,8 @@ export class AnalyticsService {
     const t = this.auth.token();
     if (!t) return false;
     try {
-      const d = await firstValueFrom(this.http.get<{ parents: string[]; subcats: { name: string; parent: string }[]; states: string[] }>(API_BASE_URL + "/api/meta", { headers: { Authorization: "Bearer " + t } }));
-      if (d && Array.isArray(d.parents)) { this._meta = { parents: d.parents || [], subcats: d.subcats || [], states: d.states || [] }; this._stateLabels = null; return true; }
+      const d = await firstValueFrom(this.http.get<{ parents: string[]; subcats: { name: string; parent: string }[]; states: string[]; brands: string[] }>(API_BASE_URL + "/api/meta", { headers: { Authorization: "Bearer " + t } }));
+      if (d && Array.isArray(d.parents)) { this._meta = { parents: d.parents || [], subcats: d.subcats || [], states: d.states || [], brands: d.brands || [] }; this._stateLabels = null; return true; }
     } catch { /* keep the bundled fallback lists */ }
     return false;
   }
@@ -925,6 +925,15 @@ export class AnalyticsService {
 
   /* ---- Competitive activity (synthetic, brand-aware) ---- */
   competitiveBrand(f: AFilter): string { return f.brand && f.brand !== "admin" ? f.brand : this.brandList[0]; }
+
+  /** Synthetic revenue-by-period for the Home trend (api mode returns the live revByPeriod instead). */
+  revByPeriod(f: AFilter): { labels: string[]; values: number[] } {
+    const labels = this.shareSeries(f).labels;
+    const total = this.brandKpis(f).revenue;
+    const w = labels.map((_, i) => 0.7 + rng((f.brand || "all") + "rev" + i) * 0.6);
+    const wsum = w.reduce((a, b) => a + b, 0) || 1;
+    return { labels, values: w.map((x) => Math.round((total * x) / wsum)) };
+  }
   newDealers(f: AFilter): { count: number; columns: string[]; rows: (string | number)[][] } {
     const brand = this.competitiveBrand(f);
     const rows = DEALERS.filter((d) => rng(brand + d + "new") > 0.5).slice(0, 10).map((d) => {

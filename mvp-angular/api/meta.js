@@ -54,16 +54,18 @@ module.exports = async (req, res) => {
 
     const hygiene = "COALESCE(deleted, false) = false";
     const p = pool();
-    const [pc, sc, st] = await Promise.all([
+    const [pc, sc, st, br] = await Promise.all([
       p.query(`SELECT DISTINCT parentcat FROM ${FACT} WHERE parentcat IS NOT NULL AND parentcat <> '' AND ${hygiene} ORDER BY parentcat`),
       p.query(`SELECT DISTINCT parentcat, subcat FROM ${FACT} WHERE subcat IS NOT NULL AND subcat <> '' AND ${hygiene} ORDER BY parentcat, subcat`),
       p.query(`SELECT DISTINCT state FROM ${FACT} WHERE state IS NOT NULL AND state <> '' AND ${hygiene} ORDER BY state`),
+      p.query(`SELECT DISTINCT brand FROM ${FACT} WHERE brand IS NOT NULL AND brand <> '' AND ${hygiene} ORDER BY brand`),
     ]);
 
     const data = {
       parents: pc.rows.map((r) => r.parentcat),
       subcats: sc.rows.map((r) => ({ name: r.subcat, parent: r.parentcat })),
       states: st.rows.map((r) => r.state),
+      brands: br.rows.map((r) => r.brand),
     };
     _cache = { at: Date.now(), data };
     res.status(200).json(data);

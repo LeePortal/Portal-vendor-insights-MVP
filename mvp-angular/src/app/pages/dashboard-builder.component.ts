@@ -113,10 +113,10 @@ export class DashboardBuilderComponent {
     { id: "funnel", label: "Proposal Funnel" },
     { id: "geo", label: "Geographic Heatmap" },
   ];
-  brands = this.an.brandList;
-  parentOptions = this.an.parentCats;
+  get brands(): string[] { return this.an.brandList; }
+  get parentOptions(): string[] { return this.an.parentCats; }
   buyingGroupOptions = this.an.buyingGroups;
-  stateOptions = this.an.states;
+  get stateOptions(): string[] { return this.an.states; }
 
   id = this.cds.newId();
   dashName = "";

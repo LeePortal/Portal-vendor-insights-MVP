@@ -1,5 +1,6 @@
 import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
+import { FormsModule } from "@angular/forms";
 import { ActivatedRoute } from "@angular/router";
 import { AuthService } from "../core/auth.service";
 import { DataService } from "../core/data.service";
@@ -20,7 +21,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 @Component({
   selector: "app-dashboard",
   standalone: true,
-  imports: [CommonModule, TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSelectComponent],
+  imports: [CommonModule, FormsModule, TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSelectComponent],
   template: `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h1>{{ title }}</h1><p>Category performance across the Portal network. <span class="muted" *ngIf="viewAs !== 'admin'">· {{ viewAs }}</span></p></div>
@@ -33,11 +34,10 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="filterbar" style="align-items:flex-end">
-      <div class="filt"><label>Brand <span class="muted" style="font-weight:400">— focus one for competitive widgets</span></label>
-        <select class="minput" [value]="viewAs" (change)="setBrand($any($event.target).value)">
-          <option value="admin">All brands</option>
-          <option *ngFor="let b of allBrands" [value]="b">{{ b }}</option>
-        </select>
+      <div class="filt" style="position:relative"><label>Brand <span class="muted" style="font-weight:400">— type to find one; blank = all brands</span></label>
+        <input class="minput" [placeholder]="viewAs === 'admin' ? 'All brands' : viewAs" [(ngModel)]="brandQuery" />
+        <div class="suggest" *ngIf="brandSuggest.length"><div class="sg" *ngFor="let b of brandSuggest" (click)="setBrand(b); brandQuery=''">{{ b }}</div></div>
+        <div *ngIf="viewAs !== 'admin'" class="chips" style="margin-top:4px"><span class="chip on" (click)="setBrand('admin'); brandQuery=''">{{ viewAs }} ✕</span></div>
       </div>
       <div class="filt"><label>Aggregation</label>
         <div class="tgl">
@@ -169,8 +169,8 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
     </div>
 
-    <h2 *ngIf="won.length || lost.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
-    <div class="grid c2" style="align-items:start" *ngIf="won.length || lost.length">
+    <h2 *ngIf="(won.length || lost.length) && !isAdmin" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
+    <div class="grid c2" style="align-items:start" *ngIf="(won.length || lost.length) && !isAdmin">
       <div class="pcard">
         <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><div class="s">Line items where {{ focusBrand }} replaced a competitor</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
@@ -256,6 +256,7 @@ export class DashboardComponent implements OnInit {
 
   viewAs = "admin";
   ownBrand = "";   // the vendor's own brand (locked target for their competitive widgets)
+  brandQuery = ""; // type-ahead text for the Brand filter
   agg = "monthly";
   horizon = "YTD";
   fromDate = "";
@@ -310,6 +311,8 @@ export class DashboardComponent implements OnInit {
   get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents, this.dataMode === "api"); }
   /** Brand the per-brand widgets (displacement / funnel brand line) represent: focal for admins, own brand for vendors. */
   get focusBrand(): string { return this.isAdmin ? this.viewAs : this.ownBrand; }
+  /** Live brand suggestions (every Portal brand) that START WITH what's typed; capped for the dropdown. */
+  get brandSuggest(): string[] { const q = this.brandQuery.toLowerCase().trim(); return q ? this.an.brandList.filter((b) => b.toLowerCase().startsWith(q)).slice(0, 8) : []; }
   get subOptions(): string[] { return this.parents.length ? this.an.subsForParents(this.parents) : []; }
 
   /** Pre-select every category/sub-category the user is allowed to see (so nothing looks hidden). */

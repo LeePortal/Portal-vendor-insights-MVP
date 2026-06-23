@@ -254,6 +254,13 @@ module.exports = async (req, res) => {
       });
     }
 
+    // Revenue by period — reuses the series data (no extra query): the focal brand's revenue when one
+    // is in focus, otherwise the whole filtered market total. Powers the Home trend (and future YoY).
+    const revByPeriod = {
+      labels,
+      values: periodKeys.map((k) => (tenant.brand ? (cell.get(tenant.brand + "|" + k) || 0) : (periodsMap.get(k).total || 0))),
+    };
+
     const k = kpiRes.rows[0] || {};
     const kpis = {
       revenue: num(k.rev_all), units: num(k.un_all), proposals: num(k.prop_all), dealers: num(k.deal_all),
@@ -377,6 +384,7 @@ module.exports = async (req, res) => {
       brandRows, itemRows, subcatRows,
       share: { labels, rows: brandRows, series },
       kpis,
+      revByPeriod,
       submitted, accepted, won, lost,
     };
     cache.set(key, { at: Date.now(), data: payload });

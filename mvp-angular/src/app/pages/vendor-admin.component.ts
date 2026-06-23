@@ -131,7 +131,7 @@ export class VendorAdminComponent implements OnInit {
   private auth = inject(AuthService);
 
   permKeys = USER_PERMISSIONS;
-  catalog = this.an.brandList;
+  get catalog(): string[] { return this.an.brandList; }
   get parentOptions(): string[] { return this.an.parentCats; }
   buyingGroupOptions = this.an.buyingGroups;
   get stateOptions(): string[] { return this.an.states; }

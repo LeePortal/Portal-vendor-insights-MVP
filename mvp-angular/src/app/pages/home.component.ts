@@ -1,7 +1,8 @@
-import { Component, inject } from "@angular/core";
+import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { AuthService } from "../core/auth.service";
 import { DataService } from "../core/data.service";
+import { AFilter } from "../core/analytics.service";
 import { BrandPerformanceSource, HealthCheck } from "../core/brand-performance.source";
 import { DATA_MODE } from "../core/app-config";
 import { TrendChartComponent } from "../components/charts.component";
@@ -19,8 +20,10 @@ interface Kp { label: string; value: string; yoy: number; }
         <h1>{{ isAdmin ? "Network sales performance" : "Welcome, " + firstName }}</h1>
         <p>{{ isAdmin ? "Across all subscribing brands on the Portal network — trailing 12 months vs. prior year." : "How your products are selling across the Portal network — trailing 12 months vs. prior year." }}</p>
       </div>
-      <span class="badge-sample">SAMPLE DATA</span>
+      <span class="badge-sample">{{ dataMode === 'api' ? 'LIVE DATA' : 'SAMPLE DATA' }}</span>
     </div>
+
+    <div *ngIf="loadError" class="pcard" style="border:1px solid var(--negative);margin-bottom:16px"><div class="bd" style="color:var(--negative);font-size:13px">{{ loadError }}</div></div>
 
     <div class="pcard" *ngIf="isAdmin && dataMode === 'api'" style="margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:center">
@@ -55,7 +58,7 @@ interface Kp { label: string; value: string; yoy: number; }
     .st-green { background:#1d9e75; } .st-amber { background:#f0a000; } .st-red { background:#d85a30; }
   `],
 })
-export class HomeComponent {
+export class HomeComponent implements OnInit {
   private auth = inject(AuthService);
   private data = inject(DataService);
   private src = inject(BrandPerformanceSource);
@@ -71,29 +74,31 @@ export class HomeComponent {
   statusLoading = false;
   lastChecked = "";
 
-  constructor() {
-    const CUR = { start: "2025-07-01", end: "2026-06-30" };
-    const PRIOR = { start: "2024-07-01", end: "2025-06-30" };
-    const vids = this.isAdmin ? this.data.listVendors().map((v) => v.id) : [this.session.vendorId!];
-    let cR = 0, pR = 0, cP = 0, pP = 0, cD = 0, pD = 0, cCR = 0, pCR = 0;
-    for (const vid of vids) {
-      const c = this.data.getKpis({ vendorId: vid, start: CUR.start, end: CUR.end });
-      const p = this.data.getKpis({ vendorId: vid, start: PRIOR.start, end: PRIOR.end });
-      cR += c.revenue; pR += p.revenue; cP += c.proposals; pP += p.proposals; cD += c.activeDealers; pD += p.activeDealers;
-      const ar = 0.4 + this.rng(vid) * 0.14;
-      cCR += ar; pCR += ar - 0.02 + this.rng(vid + "p") * 0.04;
+  loadError = "";
+
+  async ngOnInit(): Promise<void> {
+    // Live: trailing 12 months vs the prior year. Admin = whole network (all brands); vendor = own brand.
+    const today = new Date();
+    const to = today.toISOString().slice(0, 10);
+    const from = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate()).toISOString().slice(0, 10);
+    const filter: AFilter = {
+      brand: this.isAdmin ? "admin" : (this.data.getVendor(this.session.vendorId || "")?.name || ""),
+      parents: [], subs: [], buyingGroups: [], states: [], statuses: ["Accepted", "Completed", "Submitted"],
+      normalize: false, agg: "monthly", horizon: "Custom", from, to,
+    };
+    try {
+      const p = await this.src.get(filter);
+      this.kpis = [
+        { label: "Active dealers", value: fmtNumber(p.kpis.dealers), yoy: p.kpis.dealersYoY },
+        { label: "Unique proposals", value: fmtNumber(p.kpis.proposals), yoy: p.kpis.proposalsYoY },
+        { label: this.isAdmin ? "Revenue" : "Brand revenue", value: fmtCompact(p.kpis.revenue), yoy: p.kpis.revenueYoY },
+        { label: "Units sold", value: fmtNumber(p.kpis.units), yoy: p.kpis.unitsYoY },
+      ];
+      this.trendPts = (p.revByPeriod.labels || []).map((l, i) => ({ label: l, value: (p.revByPeriod.values || [])[i] || 0 }));
+      this.loadError = "";
+    } catch (e: any) {
+      this.loadError = "Couldn't load live data: " + ((e && e.message) || e);
     }
-    const curCR = (cCR / vids.length) * 100;
-    const priCR = (pCR / vids.length) * 100;
-    const yoy = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
-    this.kpis = [
-      { label: "Active dealers", value: fmtNumber(cD), yoy: yoy(cD, pD) },
-      { label: "Unique proposals", value: fmtNumber(cP), yoy: yoy(cP, pP) },
-      { label: "Revenue", value: fmtCompact(cR), yoy: yoy(cR, pR) },
-      { label: "Close rate", value: Math.round(curCR) + "%", yoy: yoy(curCR, priCR) },
-    ];
-    const trends = vids.map((vid) => this.data.getRevenueTrend({ vendorId: vid, start: CUR.start, end: CUR.end }));
-    this.trendPts = trends[0].map((tp, i) => ({ label: tp.label, value: trends.reduce((s, t) => s + (t[i] ? t[i].revenue : 0), 0) }));
     if (this.isAdmin && this.dataMode === "api") this.loadHealth();
   }
 

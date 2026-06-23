@@ -110,7 +110,7 @@ export class VendorLandingComponent implements OnInit {
   private activity = inject(ActivityService);
 
   permKeys = USER_PERMISSIONS;
-  catalog = this.an.brandList;
+  get catalog(): string[] { return this.an.brandList; }
   get parentOptions(): string[] { return this.an.parentCats; }
   get stateOptions(): string[] { return this.an.states; }
   get stateLabels(): Record<string, string> { return this.an.stateLabels; }

@@ -78,6 +78,7 @@ export class BrandPerformanceSource {
       subcatRows: this.an.subcatBreakdown(f),
       share: this.an.shareSeries(f),
       kpis: this.an.brandKpis(f),
+      revByPeriod: this.an.revByPeriod(f),
       submitted: KINDS.map((k) => ({ kind: k, ...this.an.proposalSeries(f, k, "submitted") })),
       accepted: KINDS.map((k) => ({ kind: k, ...this.an.proposalSeries(f, k, "accepted") })),
       won: this.an.displacementWon(f),
