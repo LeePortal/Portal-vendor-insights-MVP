@@ -10,7 +10,7 @@
     "watch": "ng build --watch --configuration development"
   },
   "dependencies": {
-    "html2canvas": "^1.4.1",
+    "html-to-image": "^1.11.13",
     "pg": "^8.11.5",
     "@sparticuz/chromium": "^149.0.0",
     "puppeteer-core": "^25.1.0",
