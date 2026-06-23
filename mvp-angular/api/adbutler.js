@@ -154,83 +154,64 @@ module.exports = async (req, res) => {
     }
 
     if (action === "campaign") {
-      // One campaign's detail: meta + period impressions/clicks + its banners' creative IMAGE urls.
-      // Image resolution is best-effort across AdButler field names; if none resolve, `debug` returns the
-      // raw banner/creative so the field can be mapped from live data.
+      // One campaign's detail for the admin landing page: meta + period impressions/clicks + its AD ITEMS
+      // (the creatives), each with its own image, click-through, created date, and per-ad-item impressions/clicks.
+      //
+      // AdButler model (verified against live data):
+      //   advertiser -> campaign (standard_campaign) -> ad-items (image_ad_item, parent.type="campaign")
+      //   A campaign's ad-items come from the NESTED collection /campaigns/standard/{id}/ad-items
+      //   (the flat /ad-items?campaign= filter is IGNORED). Each ad-item carries: name, creative (id) and/or
+      //   creative_url (served image), location (click-through), width/height, created_date.
+      //   Image URL = creative_url when populated, else getad.img/?libBID={creative id} (verified rendering).
+      //   Per-ad-item metrics come from /reports?type=ad-item (account-wide, keyed by ad-item id; NOT filterable,
+      //   so we map by id). Active = served impressions in the CURRENT month (same rule as campaigns).
       const campaignId = String(q.campaignId || "");
       if (!campaignId) return res.status(400).json({ error: "campaignId required" });
       const from = iso(String(q.from || "")), to = iso(String(q.to || ""), true);
-      const [allC, advList] = await Promise.all([
-        abPages("/campaigns"),
+      const now = new Date();
+      const cmFrom = iso(now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-01");
+      const cmTo = iso(now.toISOString().slice(0, 10), true);
+      const cPath = "/campaigns/standard/" + encodeURIComponent(campaignId);
+      const [camp, advList, items, repCamp, repItem, repItemNow] = await Promise.all([
+        ab(cPath).catch(() => ({})),
         abPages("/advertisers").catch(() => []),
+        abPages(cPath + "/ad-items").catch(() => []),
+        ab("/reports", { type: "campaign", period: "month", from, to }).catch(() => ({})),
+        ab("/reports", { type: "ad-item", period: "month", from, to }).catch(() => ({})),
+        ab("/reports", { type: "ad-item", period: "month", from: cmFrom, to: cmTo }).catch(() => ({})),
       ]);
-      const camp = allC.find((c) => String(c.id) === campaignId) || {};
       const aid = advId(camp);
       const a = advList.find((x) => String(x.id) === aid);
       const advertiserName = a ? (a.name || "") : "";
-
-      // This AdButler account exposes /creatives (not /banners), each tied to an `advertiser` (no campaign
-      // link in the API). Show the campaign's advertiser's image creatives. The list has no URL field, so for
-      // each we also pull /creatives/{id} detail (which may carry the served image URL) and report a full
-      // sample in `debug` so the exact image field can be locked.
-      const probes = [];
-      let creativesRaw = [];
-      try { creativesRaw = await abPages("/creatives"); probes.push({ path: "/creatives", ok: true, count: creativesRaw.length }); }
-      catch (e) { probes.push({ path: "/creatives", ok: false, error: String((e && e.message) || e).slice(0, 160) }); }
-      const mineC = creativesRaw.filter((c) => String(c.advertiser != null ? c.advertiser : "") === aid);
-      const pool = (mineC.length ? mineC : creativesRaw).slice(0, 12);
-      // getad.img/?libBID={id} serves the image. Try the CREATIVE id directly (we have those); the real
-      // serving id may instead be an Ad Item (banner) id, so also probe candidate ad-item sources below.
-      const creatives = pool.map((c) => ({
-        bannerId: String(c.id),
-        name: c.name || c.file_name || ("Creative " + c.id),
-        width: num(c.width), height: num(c.height),
-        imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
-      }));
-      // ad-item report (type=ad-item) gives per-ad-item impressions/clicks but is NOT filterable by campaign
-      // (the campaign/advertiser params are ignored — identical 41 rows). ad-items carry no advertiser/campaign
-      // field either, only a `parent`. So find the campaign->ad-item link: nested campaign collection, a list
-      // filter, or `parent.id==campaign`. Campaign-model ad-items should parent to the campaign; legacy ones to a zone.
-      const probe = async (path, params) => {
-        try { const r = await ab(path, params); const arr = Array.isArray(r) ? r : ((r && r.data) || r); return { path, params: params || null, ok: true, count: Array.isArray(arr) ? arr.length : undefined, sample: Array.isArray(arr) ? (arr[0] || null) : arr }; }
-        catch (e) { return { path, params: params || null, ok: false, error: String((e && e.message) || e).slice(0, 140) }; }
-      };
-      const mapProbes = [];
-      mapProbes.push(await probe("/campaigns/standard/" + encodeURIComponent(campaignId) + "/ad-items"));
-      mapProbes.push(await probe("/campaigns/standard/" + encodeURIComponent(campaignId) + "/placements"));
-      mapProbes.push(await probe("/ad-items", { campaign: campaignId }));
-      // Scan ad-items for a campaign linkage in `parent` (bounded to avoid timeout).
-      let adItemsAll = [];
-      try {
-        for (let off = 0, i = 0; i < 8; i++, off += 100) {
-          const r = await ab("/ad-items", { limit: 100, offset: off });
-          const d = (r && r.data) || []; adItemsAll.push(...d);
-          if (!r || !r.has_more) break;
-        }
-      } catch (e) { /* */ }
-      const parentTypes = {};
-      for (const it of adItemsAll) { const t = (it.parent && it.parent.type) || "none"; parentTypes[t] = (parentTypes[t] || 0) + 1; }
-      const parentedToCampaign = adItemsAll.filter((it) => it.parent && String(it.parent.id) === campaignId).map((it) => ({ id: it.id, name: it.name, parentType: it.parent.type }));
-      const sampleParents = adItemsAll.slice(0, 6).map((it) => ({ id: it.id, name: it.name, parent: it.parent, created_date: it.created_date }));
+      // Per-ad-item metrics keyed by ad-item id (selected period) + current-month impressions (for Active).
+      const met = {};
+      for (const row of (repItem.data || [])) { const s = row.summary || {}; met[String(row.id)] = { impressions: num(s.impressions), clicks: num(s.clicks) }; }
+      const curImpr = {};
+      for (const row of (repItemNow.data || [])) curImpr[String(row.id)] = num((row.summary || {}).impressions);
+      const creatives = items.map((it) => {
+        const id = String(it.id);
+        const m = met[id] || { impressions: 0, clicks: 0 };
+        const imageUrl = (it.creative_url && !/default_banner\.gif/i.test(it.creative_url))
+          ? it.creative_url
+          : (it.creative ? "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(it.creative)) : "");
+        return {
+          bannerId: id,
+          name: it.name || ("Ad Item " + id),
+          width: num(it.width), height: num(it.height),
+          imageUrl,
+          clickUrl: it.location || "",
+          createdDate: it.created_date || "",
+          impressions: m.impressions, clicks: m.clicks,
+          active: (curImpr[id] || 0) > 0,
+        };
+      }).sort((x, y) => String(y.createdDate).localeCompare(String(x.createdDate))); // newest uploaded first
+      // Campaign-level totals for the selected period.
       let impressions = 0, clicks = 0;
-      try {
-        const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
-        for (const row of (rep.data || [])) if (String(row.id) === campaignId) { const s = row.summary || {}; impressions += num(s.impressions); clicks += num(s.clicks); }
-      } catch (e) { /* metrics optional */ }
+      for (const row of (repCamp.data || [])) if (String(row.id) === campaignId) { const s = row.summary || {}; impressions += num(s.impressions); clicks += num(s.clicks); }
       const out = {
         configured: true,
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
-      };
-      // DIAGNOSTIC (temporary): find the campaign->ad-item link (nested / list-filter / parent scan).
-      out.debug = {
-        campaignId,
-        advertiserId: aid,
-        mapProbes,
-        adItemsTotal: adItemsAll.length,
-        parentTypes,
-        parentedToCampaign,
-        sampleParents,
       };
       return res.status(200).json(out);
     }
