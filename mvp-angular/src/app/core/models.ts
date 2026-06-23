@@ -11,6 +11,7 @@ export interface Session {
   allowedStates?: string[];    // token scope: states; [] == all
   allowedBrands?: string[];    // token scope: brands this user may focus (visible-brands allow-list); [] == any
   perms?: Record<string, boolean>;  // control-visibility toggles (USER_PERMISSIONS); a key === false hides that control
+  logo?: string;               // brand logo data-URL (vendor only), delivered at login for the shell + PDF header
 }
 
 export interface Vendor {

@@ -29,7 +29,7 @@ export interface VUser {
   createdAt?: number;       // epoch ms when created
 }
 
-interface AdminState { companies: Company[]; users: VUser[]; logos: Record<string, string>; }
+interface AdminState { companies: Company[]; users: VUser[]; logos: Record<string, string>; logins?: Record<string, { count: number; last: number }>; }
 const LS = "pvi_vendor_admin_v7";
 const iso = (o: number) => new Date(Date.now() + o * 86_400_000).toISOString().slice(0, 10);
 const allPerms = () => Object.fromEntries(USER_PERMISSIONS.map((p) => [p, true])) as Record<string, boolean>;
@@ -56,7 +56,7 @@ export class VendorAdminService {
     try {
       const data = await firstValueFrom(this.http.get<AdminState>(API_BASE_URL + "/api/admin-vendors", { headers: { Authorization: "Bearer " + t } }));
       if (data && Array.isArray(data.companies) && Array.isArray(data.users)) {
-        this.state = { companies: data.companies, users: data.users, logos: data.logos || {} };
+        this.state = { companies: data.companies, users: data.users, logos: data.logos || {}, logins: data.logins || {} };
         try { localStorage.setItem(LS, JSON.stringify(this.state)); } catch { /* ignore */ }
         this.storeError = "";
       }
@@ -189,5 +189,7 @@ export class VendorAdminService {
   /* logos (keyed by brand id for the shell, or company name on the company page) */
   setLogo(key: string, dataUrl: string): void { this.state.logos[key] = dataUrl; this.persist(); }
   getLogo(key: string): string | undefined { return this.state.logos[key]; }
+  /** Real server-recorded login info for a user (count + last ts), or null if they haven't logged in since launch. */
+  loginFor(email: string): { count: number; last: number } | null { const l = this.state.logins?.[email.toLowerCase()]; return l && l.count ? l : null; }
   clearLogo(key: string): void { delete this.state.logos[key]; this.persist(); }
 }

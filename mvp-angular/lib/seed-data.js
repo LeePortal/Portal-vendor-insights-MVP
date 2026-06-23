@@ -109,4 +109,4 @@ function buildSeed() {
   return { companies, users };
 }
 
-module.exports = { buildSeed, PERMISSIONS };
+module.exports = { buildSeed, PERMISSIONS, VENDORS };

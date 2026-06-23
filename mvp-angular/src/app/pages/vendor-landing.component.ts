@@ -53,7 +53,7 @@ import { MultiSelectComponent } from "../components/multiselect.component";
         </div>
 
         <div class="pcard">
-          <div class="hd"><div class="t">Users</div><div class="s">Click a name to manage that user</div></div>
+          <div class="hd" style="display:flex;justify-content:space-between;align-items:center"><div><div class="t">Users</div><div class="s">Click a name to manage that user</div></div><button class="pbtn primary" (click)="addUser()">+ Add user</button></div>
           <div class="bd" style="max-height:460px;overflow:auto">
             <table class="ptbl">
               <thead><tr><th>User</th><th>Created by</th><th>Created</th><th>Last login</th><th class="num">Logins</th></tr></thead>
@@ -62,7 +62,7 @@ import { MultiSelectComponent } from "../components/multiselect.component";
                   <td style="font-weight:600">{{ u.name }}<span *ngIf="u.suspended" class="sub-badge expired" style="margin-left:6px">Suspended</span><div class="muted" style="font-size:11px;font-weight:400">{{ u.email }}</div></td>
                   <td class="muted" style="font-size:12px">{{ u.createdBy || "—" }}</td>
                   <td class="muted" style="font-size:12px">{{ u.createdAt ? (u.createdAt | date:'mediumDate') : "—" }}</td>
-                  <td class="muted" style="font-size:12px">{{ logins[u.email] && logins[u.email].last ? (logins[u.email].last | date:'mediumDate') : "Never" }}</td>
+                  <td class="muted" style="font-size:12px">{{ logins[u.email] && logins[u.email].last ? (logins[u.email].last | date:'mediumDate') : "Never" }}<span *ngIf="logins[u.email] && !logins[u.email].real" class="muted" title="Sample data — not a real login yet; remove for production" style="font-style:italic;margin-left:4px">(demo)</span></td>
                   <td class="num">{{ logins[u.email] ? logins[u.email].count : 0 }}</td>
                 </tr>
                 <tr *ngIf="!users.length"><td colspan="5" class="muted">No users yet.</td></tr>
@@ -116,7 +116,7 @@ export class VendorLandingComponent implements OnInit {
   get stateLabels(): Record<string, string> { return this.an.stateLabels; }
   company: Company | undefined;
   users: VUser[] = [];
-  logins: Record<string, { count: number; last: number }> = {};
+  logins: Record<string, { count: number; last: number; real?: boolean }> = {};
 
   showEdit = false;
   askDelete = false;
@@ -130,7 +130,12 @@ export class VendorLandingComponent implements OnInit {
     this.company = this.vs.getCompany(name);
     if (this.company) {
       this.users = this.vs.usersForCompany(this.company.name);
-      for (const u of this.users) this.logins[u.email] = this.activity.loginInfo(u.email);
+      for (const u of this.users) {
+        const real = this.vs.loginFor(u.email);
+        // PLACEHOLDER: use the real server-recorded login when present, else the synthetic ActivityService value.
+        // For production, drop the `this.activity.loginInfo(...)` fallback (and the "(demo)" marker in the template).
+        this.logins[u.email] = real ? { ...real, real: true } : { ...this.activity.loginInfo(u.email), real: false };
+      }
     }
   }
 
@@ -156,4 +161,6 @@ export class VendorLandingComponent implements OnInit {
   removeBrand(b: string): void { const i = this.cForm.brands.indexOf(b); if (i >= 0) this.cForm.brands.splice(i, 1); }
   saveEdit(): void { if (this.company) { this.vs.updateCompany(this.company.name, { brands: this.cForm.brands, perms: this.cForm.perms, parents: this.cForm.parents, subs: this.cForm.subs, states: this.cForm.states }); this.company = this.vs.getCompany(this.company.name); this.showEdit = false; } }
   confirmDelete(): void { if (this.company) { const n = this.company.name; this.vs.deleteCompany(n); this.router.navigate(["/admin/vendors"]); } }
+  /** Opens the Add-user modal on the Vendors page, prefilled for this company (via ?newUser=). */
+  addUser(): void { if (this.company) this.router.navigate(["/admin/vendors"], { queryParams: { newUser: this.company.name } }); }
 }

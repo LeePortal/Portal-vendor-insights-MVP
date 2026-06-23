@@ -13,6 +13,7 @@ import { ProposalSeriesResult } from "../core/brand-performance.contract";
 import { DATA_MODE } from "../core/app-config";
 import { TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSeries, PALETTE } from "../components/charts.component";
 import { MultiSelectComponent } from "../components/multiselect.component";
+import { WidgetToolsComponent } from "../components/widget-tools.component";
 import { PORTAL_WORDMARK_DATA_URI } from "../core/report-logo";
 import { SubscriptionService } from "../core/subscription.service";
 
@@ -21,7 +22,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 @Component({
   selector: "app-dashboard",
   standalone: true,
-  imports: [CommonModule, FormsModule, TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSelectComponent],
+  imports: [CommonModule, FormsModule, TrendChartComponent, DualLineChartComponent, MultiLineChartComponent, MultiSelectComponent, WidgetToolsComponent],
   template: `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h1>{{ title }}</h1><p>Category performance across the Portal network. <span class="muted" *ngIf="viewAs !== 'admin'">· {{ viewAs }}</span></p></div>
@@ -86,15 +87,15 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div class="dash-body" [class.updating]="loading">
 
     <div class="grid c4" style="margin-bottom:16px">
-      <div class="pcard kpi"><div class="label">{{ viewAs === 'admin' ? 'Revenue' : 'Brand Revenue' }}</div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
-      <div class="pcard kpi"><div class="label">Units Sold</div><div class="value">{{ num(kpis.units) }}</div><div class="delta" [style.color]="dcol(kpis.unitsYoY)">{{ yoyStr(kpis.unitsYoY) }} YoY</div></div>
-      <div class="pcard kpi"><div class="label">Number of Proposals</div><div class="value">{{ num(kpis.proposals) }}</div><div class="delta" [style.color]="dcol(kpis.proposalsYoY)">{{ yoyStr(kpis.proposalsYoY) }} YoY</div></div>
-      <div class="pcard kpi"><div class="label">Active Dealers</div><div class="value">{{ num(kpis.dealers) }}</div><div class="delta" [style.color]="dcol(kpis.dealersYoY)">{{ yoyStr(kpis.dealersYoY) }} YoY</div></div>
+      <div class="pcard kpi"><div class="label">{{ viewAs === 'admin' ? 'Revenue' : 'Brand Revenue' }} <span class="info-i" title="Total revenue at retail for selected filters">&#9432;</span></div><div class="value">{{ money(kpis.revenue) }}</div><div class="delta" [style.color]="dcol(kpis.revenueYoY)">{{ yoyStr(kpis.revenueYoY) }} YoY</div></div>
+      <div class="pcard kpi"><div class="label">Units Sold <span class="info-i" title="Count of units sold for selected filters">&#9432;</span></div><div class="value">{{ num(kpis.units) }}</div><div class="delta" [style.color]="dcol(kpis.unitsYoY)">{{ yoyStr(kpis.unitsYoY) }} YoY</div></div>
+      <div class="pcard kpi"><div class="label">Number of Proposals <span class="info-i" title="Count of unique proposals for selected filters">&#9432;</span></div><div class="value">{{ num(kpis.proposals) }}</div><div class="delta" [style.color]="dcol(kpis.proposalsYoY)">{{ yoyStr(kpis.proposalsYoY) }} YoY</div></div>
+      <div class="pcard kpi"><div class="label">Active Dealers <span class="info-i" [title]="'Unique dealers selling at least 1 product from ' + (focusBrand && focusBrand !== 'admin' ? focusBrand : 'the brand') + ' for selected filters'">&#9432;</span></div><div class="value">{{ num(kpis.dealers) }}</div><div class="delta" [style.color]="dcol(kpis.dealersYoY)">{{ yoyStr(kpis.dealersYoY) }} YoY</div></div>
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
-        <div><div class="t">Revenue — period over period</div><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
+        <div><div class="t">Revenue — period over period</div><app-widget-tools *ngIf="!isAdmin" filename="revenue-period-over-period" (csvOut)="widgetCsv('pop')"></app-widget-tools><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
         <div style="display:flex;gap:16px;align-items:center;flex:0 0 auto">
           <div style="text-align:right"><div style="font-size:20px;font-weight:600">{{ money(kpis.revenue) }}</div><div class="muted" style="font-size:12px">this period</div></div>
           <div class="delta" [style.color]="dcol(kpis.revenueYoY)" style="font-size:14px">{{ yoyStr(kpis.revenueYoY) }} YoY</div>
@@ -110,7 +111,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
+      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><app-widget-tools *ngIf="!isAdmin" filename="competitive-index" (csvOut)="widgetCsv('compindex')"></app-widget-tools><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
       <div class="bd">
         <div class="comp-wrap">
           <div class="comp-list">
@@ -128,7 +129,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Category Share by Brand</div><div class="s">Every brand matching the filters</div></div>
+      <div class="hd"><div class="t">Category Share by Brand</div><app-widget-tools *ngIf="!isAdmin" filename="category-share-by-brand" (csvOut)="widgetCsv('brandshare')"></app-widget-tools><div class="s">Every brand matching the filters</div></div>
       <div class="bd" style="max-height:380px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>#</th><th>Brand</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Unit Share %</th><th class="num">Avg Unit $</th><th class="num"># SKUs</th></tr></thead>
@@ -145,7 +146,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Category Share by Item</div><div class="s">Every SKU matching the filters ({{ itemRows.length }})</div></div>
+      <div class="hd"><div class="t">Category Share by Item</div><app-widget-tools *ngIf="!isAdmin" filename="category-share-by-item" (csvOut)="widgetCsv('item')"></app-widget-tools><div class="s">Every SKU matching the filters ({{ itemRows.length }})</div></div>
       <div class="bd" style="max-height:420px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>#</th><th>Brand</th><th>Model</th><th>Category</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Avg Sell $</th></tr></thead>
@@ -160,7 +161,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Sub-Category Sales Breakdown</div></div>
+      <div class="hd"><div class="t">Sub-Category Sales Breakdown</div><app-widget-tools *ngIf="!isAdmin" filename="sub-category-breakdown" (csvOut)="widgetCsv('subcat')"></app-widget-tools></div>
       <div class="bd" style="max-height:380px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>Sub-category</th><th class="num">Total Sales</th><th class="num">$ % of Category</th><th class="num"># Units</th><th class="num">Unit % of Category</th><th class="num">Avg Sell $</th></tr></thead>
@@ -190,7 +191,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="(won.length || lost.length) && !isAdmin" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
     <div class="grid c2" style="align-items:start" *ngIf="(won.length || lost.length) && !isAdmin">
       <div class="pcard">
-        <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><div class="s">Line items where {{ focusBrand }} replaced a competitor</div></div>
+        <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><app-widget-tools filename="business-won" (csvOut)="widgetCsv('won')"></app-widget-tools><div class="s">Line items where {{ focusBrand }} replaced a competitor</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
           <table class="ptbl">
             <thead><tr><th>Model</th><th>Sub-category</th><th class="num"># Units won</th><th class="num">$ won</th><th class="num">Competitors beaten</th></tr></thead>
@@ -203,7 +204,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
         </div>
       </div>
       <div class="pcard">
-        <div class="hd"><div class="t" style="color:var(--negative)">Business lost — you were displaced</div><div class="s">Click an item to see the SKUs that displaced it, ranked by units</div></div>
+        <div class="hd"><div class="t" style="color:var(--negative)">Business lost — you were displaced</div><app-widget-tools filename="business-lost" (csvOut)="widgetCsv('lost')"></app-widget-tools><div class="s">Click an item to see the SKUs that displaced it, ranked by units</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
           <table class="ptbl">
             <thead><tr><th></th><th>Your model</th><th>Sub-category</th><th class="num"># Units lost</th><th class="num">$ lost</th></tr></thead>
@@ -235,7 +236,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 
     <div *ngIf="!isAdmin" class="pcard" style="margin-top:16px;margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
-        <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><div class="s">Not affected by filters</div></div>
+        <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><app-widget-tools filename="dealers-specifying" (csvOut)="widgetCsv('dealers')"></app-widget-tools><div class="s">Not affected by filters</div></div>
         <div style="display:flex;gap:18px;flex:0 0 auto;text-align:right">
           <div><div style="font-size:20px;font-weight:600">{{ specDealers.count }}</div><div class="muted" style="font-size:12px">dealers</div></div>
           <div><div style="font-size:20px;font-weight:600;color:var(--positive)">{{ specDealers.newCount }}</div><div class="muted" style="font-size:12px">new</div></div>
@@ -364,6 +365,31 @@ export class DashboardComponent implements OnInit {
    *  explicitly set to false hides that control. Unset or true = visible. */
   get userPerms(): Record<string, boolean> { return this.session.perms ?? {}; }
   can(p: string): boolean { return this.isAdmin || this.userPerms[p] !== false; }
+
+  /** Per-widget data export (CSV, same UTF-8 BOM style as the main export). */
+  widgetCsv(which: string): void {
+    if (which === "pop") {
+      const headers = ["Period", ...this.popSeries.map((s) => s.label)];
+      const rows = this.popAxis.map((lbl, i) => [lbl, ...this.popSeries.map((s) => s.values[i] ?? "")] as any[]);
+      return this.downloadCsvFile("revenue-period-over-period", headers, rows);
+    }
+    const map: Record<string, any[]> = {
+      compindex: this.compRows, brandshare: this.brandRows, item: this.itemRows,
+      subcat: this.subcatRows, won: this.won, lost: this.lost, dealers: this.specDealers.dealers,
+    };
+    const arr = map[which] || [];
+    if (!arr.length) return this.downloadCsvFile(which, ["(no data)"], []);
+    const headers = Object.keys(arr[0]).filter((k) => typeof (arr[0] as any)[k] !== "object");
+    const rows = arr.map((o: any) => headers.map((h) => o[h]));
+    this.downloadCsvFile(which, headers, rows);
+  }
+  private downloadCsvFile(name: string, headers: string[], rows: any[][]): void {
+    const esc = (v: any) => { const s = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const csv = "﻿" + [headers.join(","), ...rows.map((r) => r.map(esc).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name + ".csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
   /** Brands this user may focus: their visible-brands allow-list if set, else every Portal brand. Admins = all. */
   get brandUniverse(): string[] { const a = this.session.allowedBrands ?? []; return a.length ? this.an.brandList.filter((b) => a.includes(b)) : this.an.brandList; }
   /** Live brand suggestions (within the user's allowed brands) that START WITH what's typed; capped for the dropdown. */
@@ -594,7 +620,11 @@ export class DashboardComponent implements OnInit {
       return h + `</tbody></table>`;
     };
     const section = (inner: string) => `<div class="section">${inner}</div>`;
-    let body = `<h1>${this.esc(company)}</h1><div class="sub">Market performance overview</div><div class="scope">${scope}</div>`;
+    const logo = this.session.logo || "";
+    const titleBlock = (logo && this.viewAs !== "admin")
+      ? `<img src="${logo}" alt="${this.esc(company)}" style="height:40px;max-width:260px;object-fit:contain;display:block;margin-bottom:2px" />`
+      : `<h1>${this.esc(company)}</h1>`;
+    let body = `${titleBlock}<div class="sub">Market performance overview</div><div class="scope">${scope}</div>`;
     body += section(`<div class="cards">${kpiCard("Brand revenue", this.money(this.kpis.revenue), this.kpis.revenueYoY)}${kpiCard("Units sold", this.num(this.kpis.units), this.kpis.unitsYoY)}${kpiCard("Proposals", this.num(this.kpis.proposals), this.kpis.proposalsYoY)}${kpiCard("Active dealers", this.num(this.kpis.dealers), this.kpis.dealersYoY)}</div>`);
     if (this.compSeries.some((s) => s.values && s.values.length)) body += section(`<h2>Competitive index &mdash; share of category</h2>${this.svgMulti(this.compSeries, this.compAxis)}`);
     body += section(`<h2>Category share by brand</h2>` + tbl([{ t: "#" }, { t: "Brand" }, { t: "Total sales", r: true }, { t: "$ share", r: true }, { t: "Units", r: true }, { t: "SKUs", r: true }], this.brandRows.slice(0, 12).map((r, i) => [i + 1, r.brand, this.cur(r.sales), this.pct(r.sharePct / 100), this.num(r.units), this.num(r.skus)]), (i) => !!this.brandRows[i] && this.brandRows[i].brand === this.viewAs));

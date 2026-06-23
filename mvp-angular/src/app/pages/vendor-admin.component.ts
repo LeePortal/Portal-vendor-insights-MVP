@@ -1,7 +1,7 @@
 import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
-import { RouterLink } from "@angular/router";
+import { RouterLink, ActivatedRoute } from "@angular/router";
 import { DataService } from "../core/data.service";
 import { AnalyticsService } from "../core/analytics.service";
 import { MultiSelectComponent } from "../components/multiselect.component";
@@ -129,6 +129,7 @@ export class VendorAdminComponent implements OnInit {
   private data = inject(DataService);
   private an = inject(AnalyticsService);
   private auth = inject(AuthService);
+  private route = inject(ActivatedRoute);
 
   permKeys = USER_PERMISSIONS;
   get catalog(): string[] { return this.an.brandList; }
@@ -149,7 +150,13 @@ export class VendorAdminComponent implements OnInit {
   uForm = this.blankUser();
   uQuery = "";
 
-  async ngOnInit(): Promise<void> { this.an.ready(); await this.vs.refresh(); }
+  async ngOnInit(): Promise<void> {
+    this.an.ready();
+    await this.vs.refresh();
+    // Deep-link from the company page's "Add user" button: open the modal prefilled for that company.
+    const nu = this.route.snapshot.queryParamMap.get("newUser");
+    if (nu) { this.openUser(); this.uForm.companyName = nu; this.onCompany(); }
+  }
 
   get companies(): Company[] { return this.vs.listCompanies(); }
   get sortedCompanies(): Company[] {

@@ -55,9 +55,9 @@ export class AuthService {
     const u = this.demoUsers.find((x) => x.email.toLowerCase() === e);
     if (DATA_MODE === "api") {
       try {
-        const r = await firstValueFrom(this.http.post<{ token: string; allowedParents?: string[]; allowedSubs?: string[]; allowedStates?: string[]; allowedBrands?: string[]; perms?: Record<string, boolean> }>(API_BASE_URL + "/api/session", { email: e, password }));
+        const r = await firstValueFrom(this.http.post<{ token: string; allowedParents?: string[]; allowedSubs?: string[]; allowedStates?: string[]; allowedBrands?: string[]; perms?: Record<string, boolean>; logo?: string }>(API_BASE_URL + "/api/session", { email: e, password }));
         if (!r || !r.token) return null;
-        return this.establish(u, e, r.token, { allowedParents: r.allowedParents || [], allowedSubs: r.allowedSubs || [], allowedStates: r.allowedStates || [], allowedBrands: r.allowedBrands || [], perms: r.perms || {} });
+        return this.establish(u, e, r.token, { allowedParents: r.allowedParents || [], allowedSubs: r.allowedSubs || [], allowedStates: r.allowedStates || [], allowedBrands: r.allowedBrands || [], perms: r.perms || {}, logo: r.logo || "" });
       } catch {
         return null;
       }

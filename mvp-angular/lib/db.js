@@ -55,6 +55,7 @@ function ensureReady() {
       states JSONB NOT NULL DEFAULT '[]', subscriptions JSONB NOT NULL DEFAULT '[]',
       created_by TEXT, created_at BIGINT)`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logos (logo_key TEXT PRIMARY KEY, data_url TEXT NOT NULL)`);
+    await p.query(`CREATE TABLE IF NOT EXISTS vendor_logins (email TEXT PRIMARY KEY, last_at BIGINT, count INTEGER NOT NULL DEFAULT 0)`);
     const { rows } = await p.query("SELECT COUNT(*)::int AS n FROM vendor_users");
     if (!rows[0].n) await replaceAll(buildSeed());
   })().catch((e) => { _ready = null; throw e; });
@@ -77,14 +78,17 @@ function rowToUser(r) {
 async function getAll() {
   await ensureReady();
   const p = pool();
-  const [c, u, l] = await Promise.all([
+  const [c, u, l, lg] = await Promise.all([
     p.query("SELECT * FROM vendor_companies ORDER BY name"),
     p.query("SELECT * FROM vendor_users ORDER BY company_name, name"),
     p.query("SELECT * FROM vendor_logos"),
+    p.query("SELECT email, last_at, count FROM vendor_logins"),
   ]);
   const logos = {};
   for (const r of l.rows) logos[r.logo_key] = r.data_url;
-  return { companies: c.rows.map(rowToCompany), users: u.rows.map(rowToUser), logos };
+  const logins = {};
+  for (const r of lg.rows) logins[r.email] = { count: Number(r.count) || 0, last: Number(r.last_at) || 0 };
+  return { companies: c.rows.map(rowToCompany), users: u.rows.map(rowToUser), logos, logins };
 }
 
 /** Transactional replace-all (the admin UI PUTs the whole dataset). Last write wins. */
@@ -137,6 +141,27 @@ async function getUserForLogin(email) {
   return { user, company };
 }
 
+/** Record a successful login — REAL usage data. Kept in its own table so the admin UI's whole-dataset
+ *  PUT (replaceAll) never wipes it. The synthetic ActivityService in the client is only a fallback. */
+async function recordLogin(email) {
+  if (!CONN) return;
+  await ensureReady();
+  const e = String(email || "").toLowerCase();
+  if (!e) return;
+  await pool().query(
+    `INSERT INTO vendor_logins (email, last_at, count) VALUES ($1, $2, 1)
+     ON CONFLICT (email) DO UPDATE SET last_at = EXCLUDED.last_at, count = vendor_logins.count + 1`,
+    [e, Date.now()]);
+}
+
+/** Fetch a single logo data-URL by key (brand id or company name); "" if none. Vendor-accessible read. */
+async function getLogo(key) {
+  if (!CONN) return "";
+  await ensureReady();
+  const r = await pool().query("SELECT data_url FROM vendor_logos WHERE logo_key = $1", [String(key || "")]);
+  return r.rows.length ? (r.rows[0].data_url || "") : "";
+}
+
 /**
  * Effective token scope. Enforcement reads the USER ACCOUNT ONLY — the company is never referenced
  * here. (Company values are just DEFAULTS that pre-fill a user when they're created in the admin UI;
@@ -155,4 +180,4 @@ function effective(user, company) {
   };
 }
 
-module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, effective, isConfigured: () => !!CONN };
+module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, recordLogin, getLogo, effective, isConfigured: () => !!CONN };

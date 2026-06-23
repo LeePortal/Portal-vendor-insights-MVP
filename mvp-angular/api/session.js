@@ -16,6 +16,8 @@
  */
 const { sign } = require("../lib/auth");
 const db = require("../lib/db");
+const { VENDORS } = require("../lib/seed-data");
+const LOGO_KEY_BY_BRAND = Object.fromEntries(VENDORS.map((v) => [v.name, v.id])); // brand name -> logo key (id) for seeded vendors
 
 const DEMO_PASSWORD = "demo";
 const ADMINS = ["lee@portal.io", "admin@portal.io"];
@@ -67,6 +69,7 @@ module.exports = async (req, res) => {
           if (found) {
             const eff = db.effective(found.user, found.company);
             claims = { email: e, role: "vendor", brand: eff.brand, allowedParents: eff.allowedParents, allowedSubs: eff.allowedSubs, allowedStates: eff.allowedStates, allowedBrands: eff.allowedBrands, perms: eff.perms };
+            await db.recordLogin(e).catch(() => {}); // REAL usage data; the client ActivityService is only a synthetic fallback
           }
         } catch (err) {
           console.error("session: vendor store lookup failed, trying legacy:", (err && err.message) || err);
@@ -82,7 +85,12 @@ module.exports = async (req, res) => {
 
     claims.exp = Math.floor(Date.now() / 1000) + 60 * 60 * 12; // 12h
     const token = sign(claims, process.env.AUTH_SECRET);
-    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates, allowedBrands: claims.allowedBrands, perms: claims.perms });
+    // Brand logo (vendor only), delivered in the login RESPONSE (not the token — data URLs are large) for the shell + PDF.
+    let logo = "";
+    if (claims.role === "vendor" && db.isConfigured()) {
+      try { logo = await db.getLogo(LOGO_KEY_BY_BRAND[claims.brand] || claims.brand); } catch (e) { logo = ""; }
+    }
+    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates, allowedBrands: claims.allowedBrands, perms: claims.perms, logo });
   } catch (e) {
     res.status(500).json({ error: String((e && e.message) || e) });
   }

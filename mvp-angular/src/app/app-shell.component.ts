@@ -83,7 +83,7 @@ export class AppShellComponent {
     const parts = this.session.name.replace(/[^a-zA-Z ]/g, " ").trim().split(/\s+/).filter(Boolean);
     return (parts.slice(0, 2).map((w) => w[0]).join("") || "U").toUpperCase();
   }
-  get brandLogo(): string | undefined { return this.isAdmin ? undefined : this.va.getLogo(this.session.vendorId || ""); }
+  get brandLogo(): string | undefined { return this.isAdmin ? undefined : (this.session.logo || this.va.getLogo(this.session.vendorId || "") || undefined); }
   get locked(): boolean { return !this.isAdmin && this.va.statusOf(this.session.email) !== "active"; }
   get lockMessage(): string {
     const st = this.va.statusOf(this.session.email);
