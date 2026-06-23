@@ -40,7 +40,10 @@ interface Kp { label: string; value: string; yoy: number; }
       </div>
     </div>
 
-    <div class="grid c4" style="margin-bottom:16px">
+    <div *ngIf="loading" class="grid c4" style="margin-bottom:16px">
+      <div class="pcard kpi" *ngFor="let s of [1,2,3,4]"><div class="hsk" style="height:12px;width:55%;margin-bottom:14px"></div><div class="hsk" style="height:26px;width:72%"></div></div>
+    </div>
+    <div class="grid c4" style="margin-bottom:16px" *ngIf="!loading">
       <div class="pcard kpi" *ngFor="let kp of kpis">
         <div class="label">{{ kp.label }}</div>
         <div class="value">{{ kp.value }}</div>
@@ -48,7 +51,8 @@ interface Kp { label: string; value: string; yoy: number; }
       </div>
     </div>
 
-    <div class="pcard">
+    <div *ngIf="loading" class="pcard"><div class="hsk" style="height:14px;width:32%;margin-bottom:18px"></div><div class="hsk" style="height:240px"></div></div>
+    <div class="pcard" *ngIf="!loading">
       <div class="hd"><div class="t">Sales performance</div><div class="s">Revenue by month — trailing 12 months vs. prior year</div></div>
       <div class="bd">
         <div style="display:flex;gap:18px;font-size:12px;color:var(--text-muted);margin-bottom:8px">
@@ -62,6 +66,8 @@ interface Kp { label: string; value: string; yoy: number; }
   styles: [`
     .st-dot { display:inline-block; width:11px; height:11px; border-radius:50%; background:#c9c9c9; flex:0 0 auto; box-shadow:0 0 0 3px rgba(0,0,0,0.04); }
     .st-green { background:#1d9e75; } .st-amber { background:#f0a000; } .st-red { background:#d85a30; }
+    @keyframes hpulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+    .hsk { background: var(--border); border-radius: 6px; animation: hpulse 1.1s ease-in-out infinite; display: block; }
   `],
 })
 export class HomeComponent implements OnInit {
@@ -82,6 +88,7 @@ export class HomeComponent implements OnInit {
   lastChecked = "";
 
   loadError = "";
+  loading = true;
 
   async ngOnInit(): Promise<void> {
     // Live: trailing 12 months vs the prior year. Admin = whole network (all brands); vendor = own brand.
@@ -109,6 +116,8 @@ export class HomeComponent implements OnInit {
       this.loadError = "";
     } catch (e: any) {
       this.loadError = "Couldn't load live data: " + ((e && e.message) || e);
+    } finally {
+      this.loading = false;
     }
     if (this.isAdmin && this.dataMode === "api") this.loadHealth();
   }
