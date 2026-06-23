@@ -187,35 +187,29 @@ module.exports = async (req, res) => {
         width: num(c.width), height: num(c.height),
         imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
       }));
-      // Confirmed: the creative id works directly as the getad.img libBID, so no Ad Item lookup is needed.
-      // The dashboard's "Ad Items" appear to BE the API's campaigns. Inspect this advertiser's campaigns:
-      // names (do they match the Ad Items?), a full campaign object (any creative/banner link for the image?),
-      // and their per-campaign metrics.
-      const advCampaigns = allC.filter((c) => advId(c) === aid);
-      let campMetrics = [];
-      try {
-        const rep2 = await ab("/reports", { type: "campaign", period: "month", from, to });
-        campMetrics = (rep2.data || [])
-          .filter((row) => advCampaigns.some((c) => String(c.id) === String(row.id)))
-          .map((row) => ({ id: String(row.id), impressions: num((row.summary || {}).impressions), clicks: num((row.summary || {}).clicks) }));
-      } catch (e) { /* */ }
-      // Find the Ad Item (banner) list. Typed self-paths (/campaigns/standard/{id}) mean ads likely sit at a
-      // typed/nested path — plain /banners and /ads 404'd. Also grab the full valid report-types list.
-      const adItemProbes = [];
-      const tryList2 = async (path) => {
-        try { const r = await ab(path); const data = Array.isArray(r) ? r : ((r && r.data) || []); const arr = Array.isArray(data) ? data : []; adItemProbes.push({ path, ok: true, count: arr.length, sample: arr[0] || null }); }
-        catch (e) { adItemProbes.push({ path, ok: false, error: String((e && e.message) || e).slice(0, 200) }); }
+      // Ad Items are `advertisement` objects (type image_ad_item) — surfaced via /placements (which 200'd),
+      // each linking an advertisement -> a zone on a schedule. Discover the ad-item RESOURCE (typed path like
+      // /advertisements/image/{id}, mirroring /creatives/image/{id}) and the FULL report-types enum so we can
+      // wire per-ad-item metrics next. Also dump the full campaign + a sample placement to map campaign->ad item.
+      const probe = async (path, params) => {
+        try { const r = await ab(path, params); const arr = Array.isArray(r) ? r : ((r && r.data) || r); return { path, ok: true, count: Array.isArray(arr) ? arr.length : undefined, sample: Array.isArray(arr) ? (arr[0] || null) : arr }; }
+        catch (e) { return { path, ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
       };
-      await tryList2("/banners/image");
-      await tryList2("/ads/image");
-      await tryList2("/campaigns/standard/" + encodeURIComponent(campaignId) + "/items");
-      await tryList2("/items");
-      await tryList2("/rotations");
-      await tryList2("/placements");
-      await tryList2("/zones");
+      let placements = [];
+      try { placements = await abPages("/placements"); } catch (e) { /* */ }
+      const samplePlacement = placements.find((p) => p && p.advertisement && p.advertisement.id) || placements[0] || null;
+      const someAdId = samplePlacement && samplePlacement.advertisement ? samplePlacement.advertisement.id : "";
+      const adItemProbes = [];
+      adItemProbes.push(await probe("/advertisements"));
+      adItemProbes.push(await probe("/advertisements/image"));
+      if (someAdId) { adItemProbes.push(await probe("/advertisements/image/" + encodeURIComponent(someAdId))); adItemProbes.push(await probe("/advertisements/" + encodeURIComponent(someAdId))); }
+      // FULL report-types enum — ab() truncates error bodies to 300 chars, so fetch directly here.
       let reportTypes = "";
-      try { await ab("/reports", { type: "zzz", period: "month", from, to }); }
-      catch (e) { const m = String((e && e.message) || e); const i = m.indexOf("{"); try { const j = JSON.parse(m.slice(i)); reportTypes = (j.parameters && j.parameters[0] && j.parameters[0].message) || m; } catch (e2) { reportTypes = m.slice(0, 1200); } }
+      try {
+        const rr = await fetch(AB_BASE + "/reports?" + qs({ type: "zzz", period: "month", from, to }), { headers: { Authorization: "Basic " + KEY, Accept: "application/json" } });
+        const tt = await rr.text();
+        try { const j = JSON.parse(tt); reportTypes = (j.parameters && j.parameters[0] && j.parameters[0].message) || tt; } catch (e2) { reportTypes = tt.slice(0, 1500); }
+      } catch (e) { reportTypes = String((e && e.message) || e); }
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -226,10 +220,11 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      // DIAGNOSTIC (temporary): confirm Ad Items == campaigns and find the campaign→creative/image link.
+      // DIAGNOSTIC (temporary): locate the Ad Item (advertisement) resource + report enum, map campaign->ad item.
       out.debug = {
         advertiserId: aid,
-        campaign: { id: campaignId, name: (advCampaigns[0] || {}).name || "", metrics: campMetrics },
+        campaignObj: camp,
+        placements: { total: placements.length, distinctAdItems: [...new Set(placements.map((p) => (p.advertisement && p.advertisement.id) || "").filter(Boolean))].length, sample: samplePlacement },
         adItemProbes,
         reportTypes,
       };
