@@ -1,6 +1,7 @@
 import { Component, inject } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { ActivityService, VendorEngagement } from "../core/activity.service";
+import { PremiumPlacementSource, PpAdvertiser, PpCampaign } from "../core/premium-placement.source";
 import { VendorAdminService } from "../core/vendor-admin.service";
 import { ActivityEvent } from "../core/models";
 import { fmtDateTime, fmtNumber, relativeTime } from "../core/format";
@@ -21,7 +22,7 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
 
     <div class="tgl" style="margin-bottom:16px">
       <button [class.on]="prod === 'mi'" (click)="prod = 'mi'">Market Insights</button>
-      <button [class.on]="prod === 'pp'" (click)="prod = 'pp'">Premium Placement</button>
+      <button [class.on]="prod === 'pp'" (click)="showPp()">Premium Placement</button>
     </div>
 
     <div *ngIf="prod === 'mi'">
@@ -106,19 +107,48 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
     </div>
 
     <div *ngIf="prod === 'pp'">
-      <div class="grid c4" style="margin-bottom:16px">
-        <div class="pcard kpi"><div class="label">Ad impressions</div><div class="value">—</div><div class="delta flat">Spotlight + Featured</div></div>
-        <div class="pcard kpi"><div class="label">Clicks</div><div class="value">—</div><div class="delta flat">all placements</div></div>
-        <div class="pcard kpi"><div class="label">Click-through rate</div><div class="value">—</div><div class="delta flat">clicks ÷ impressions</div></div>
-        <div class="pcard kpi"><div class="label">Active advertisers</div><div class="value">—</div><div class="delta flat">running placements</div></div>
+      <div class="filterbar" style="align-items:flex-end;margin-bottom:16px">
+        <div class="filt"><label>Period</label>
+          <div class="tgl">
+            <button [class.on]="ppPeriod === 'mtd'" (click)="setPpPeriod('mtd')">MTD</button>
+            <button [class.on]="ppPeriod === 'lastmonth'" (click)="setPpPeriod('lastmonth')">Last month</button>
+            <button [class.on]="ppPeriod === 'custom'" (click)="setPpPeriod('custom')">Custom</button>
+          </div>
+        </div>
+        <div class="filt" *ngIf="ppPeriod === 'custom'"><label>From</label><input class="minput" type="date" [value]="ppFrom" (change)="onPpCustom($event, 's')" /></div>
+        <div class="filt" *ngIf="ppPeriod === 'custom'"><label>To</label><input class="minput" type="date" [value]="ppTo" (change)="onPpCustom($event, 'e')" /></div>
+        <div class="filt"><label>Company <span class="muted" style="font-weight:400">— select to see its campaigns</span></label>
+          <select class="minput" (change)="onPpCompany($any($event.target).value)">
+            <option value="">All companies</option>
+            <option *ngFor="let a of ppAdvertisers" [value]="a.id" [selected]="a.id === ppCompany">{{ a.name }}</option>
+          </select>
+        </div>
       </div>
-      <!-- TODO(premium-placement): wire real PP activity here once the advertiser (user) view is scoped —
-           Spotlight live from AdButler, Featured Products from its source. NO synthetic data until then. -->
-      <div class="pcard">
-        <div class="hd"><div class="t">Premium Placement activity</div><div class="s">Impressions, clicks &amp; advertiser engagement across Spotlight &amp; Featured Products</div></div>
-        <div class="bd" style="padding:30px;text-align:center;color:var(--text-muted)">
-          <div style="font-size:14px;font-weight:600;margin-bottom:6px">No activity to show yet</div>
-          <div style="font-size:13px;max-width:560px;margin:0 auto">Premium Placement activity will populate here once the advertiser (user) view is built. Spotlight metrics will come live from AdButler; Featured Products impressions/clicks are pending their data source. No sample data is shown.</div>
+
+      <div *ngIf="!ppConfigured" class="pcard" style="border:1px solid #ff5000;background:var(--accent-soft);margin-bottom:16px">
+        <div class="bd" style="font-size:13px;color:#ff5000">AdButler isn't connected yet. Set <b>ADBUTLER_API_KEY</b> in the environment and this page will populate with live Spotlight impressions, clicks and advertisers.</div>
+      </div>
+
+      <div class="grid c4" style="margin-bottom:16px">
+        <div class="pcard kpi"><div class="label">Ad impressions</div><div class="value">{{ ppConfigured ? n(ppTotalImpressions) : "—" }}</div><div class="delta flat">Spotlight (live) · Featured pending</div></div>
+        <div class="pcard kpi"><div class="label">Clicks</div><div class="value">{{ ppConfigured ? n(ppTotalClicks) : "—" }}</div><div class="delta flat">Spotlight (live) · Featured pending</div></div>
+        <div class="pcard kpi"><div class="label">Active advertisers</div><div class="value">{{ ppConfigured ? n(activeAdvertisers) : "—" }}</div><div class="delta flat">from AdButler · not filtered</div></div>
+      </div>
+
+      <!-- TODO(premium-placement): Featured Products impressions/clicks fold into ppFeaturedImpressions/ppFeaturedClicks
+           once their source exists; today they are 0. Spotlight is live from AdButler via /api/adbutler. -->
+      <div class="pcard" *ngIf="ppConfigured">
+        <div class="hd"><div class="t">Active campaigns<span *ngIf="ppCompanyName"> — {{ ppCompanyName }}</span></div><div class="s">{{ ppCompany ? "Spotlight campaigns for this company, this period" : "Select a company above to see its campaigns" }}</div></div>
+        <div class="bd">
+          <div *ngIf="ppLoading" class="muted" style="font-size:13px">Loading…</div>
+          <div *ngIf="!ppLoading && !ppCompany" class="muted" style="font-size:13px">Choose a company to list its active campaigns and their impressions/clicks.</div>
+          <div *ngIf="!ppLoading && ppCompany && !ppCampaigns.length" class="muted" style="font-size:13px">No campaigns with activity for this company in the selected period.</div>
+          <table class="ptbl" *ngIf="!ppLoading && ppCompany && ppCampaigns.length">
+            <thead><tr><th>Campaign</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
+            <tbody>
+              <tr *ngFor="let c of ppCampaigns"><td style="font-weight:600">{{ c.name }}</td><td class="num">{{ n(c.impressions) }}</td><td class="num">{{ n(c.clicks) }}</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -127,6 +157,7 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
 export class AdminComponent {
   private activity = inject(ActivityService);
   private va = inject(VendorAdminService);
+  private pp = inject(PremiumPlacementSource);
 
   summary = this.activity.getSummary(30);
   topDashRows = this.activity.getTopDashboards(30).map((d) => ({ label: d.name, value: d.views }));
@@ -137,6 +168,18 @@ export class AdminComponent {
   ranges = [{ k: "all", l: "All time" }, { k: "ytd", l: "YTD" }, { k: "mtd", l: "MTD" }, { k: "wtd", l: "WTD" }, { k: "custom", l: "Custom" }];
   rangeKey = "all";
   prod: "mi" | "pp" = "mi";  // which product line's activity is shown
+  // Premium Placement (Spotlight live from AdButler via /api/adbutler; Featured Products = placeholder 0 for now)
+  ppPeriod: "mtd" | "lastmonth" | "custom" = "mtd";
+  ppFrom = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  ppTo = new Date().toISOString().slice(0, 10);
+  ppCompany = "";
+  ppAdvertisers: PpAdvertiser[] = [];
+  ppCampaigns: PpCampaign[] = [];
+  ppConfigured = true;
+  ppLoading = false;
+  ppImpressions = 0; ppClicks = 0;
+  ppFeaturedImpressions = 0; ppFeaturedClicks = 0; // TODO: Featured Products — fold in once its data source exists
+  private ppLoaded = false;
   cStart = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
   cEnd = new Date().toISOString().slice(0, 10);
   expanded: string | null = null;
@@ -177,5 +220,37 @@ export class AdminComponent {
   }
   label(t: string): string {
     return { login: "Login", dashboard_view: "Viewed", report_pull: "Report", csv_export: "CSV" }[t] || t;
+  }
+
+  // ---- Premium Placement (admin view) ----
+  get ppTotalImpressions(): number { return this.ppImpressions + this.ppFeaturedImpressions; }
+  get ppTotalClicks(): number { return this.ppClicks + this.ppFeaturedClicks; }
+  get activeAdvertisers(): number { return this.ppAdvertisers.length; }  // filter-independent count from AdButler
+  get ppCompanyName(): string { const a = this.ppAdvertisers.find((x) => x.id === this.ppCompany); return a ? a.name : ""; }
+
+  showPp(): void { this.prod = "pp"; if (!this.ppLoaded) { this.ppLoaded = true; this.loadPpAdvertisers(); this.refreshPp(); } }
+  setPpPeriod(p: "mtd" | "lastmonth" | "custom"): void { this.ppPeriod = p; this.refreshPp(); }
+  onPpCustom(ev: Event, which: "s" | "e"): void { const v = (ev.target as HTMLInputElement).value; if (which === "s") this.ppFrom = v; else this.ppTo = v; if (this.ppPeriod === "custom") this.refreshPp(); }
+  onPpCompany(id: string): void { this.ppCompany = id || ""; this.refreshPp(); }
+
+  private ppRange(): { from: string; to: string } {
+    const now = new Date(); const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    if (this.ppPeriod === "mtd") return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: ymd(now) };
+    if (this.ppPeriod === "lastmonth") return { from: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: ymd(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    return { from: this.ppFrom, to: this.ppTo };
+  }
+  private async loadPpAdvertisers(): Promise<void> {
+    const r = await this.pp.advertisers();
+    this.ppConfigured = r.configured; this.ppAdvertisers = r.advertisers;
+  }
+  async refreshPp(): Promise<void> {
+    const { from, to } = this.ppRange();
+    this.ppLoading = true;
+    try {
+      const s = await this.pp.summary(from, to, this.ppCompany);
+      this.ppConfigured = s.configured; this.ppImpressions = s.impressions; this.ppClicks = s.clicks;
+      if (this.ppCompany) { const c = await this.pp.campaigns(this.ppCompany, from, to); this.ppCampaigns = c.campaigns; }
+      else { this.ppCampaigns = []; }
+    } finally { this.ppLoading = false; }
   }
 }
