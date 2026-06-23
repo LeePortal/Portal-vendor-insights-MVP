@@ -679,7 +679,7 @@ const STATE_BY_CODE: Record<string, string> = {
 export class AnalyticsService {
   private http = inject(HttpClient);
   private auth = inject(AuthService);
-  private _meta: { parents: string[]; subcats: { name: string; parent: string }[]; states: string[]; brands: string[] } | null = null;
+  private _meta: { parents: string[]; subcats: { name: string; parent: string }[]; states: string[]; brands: string[]; statuses: string[] } | null = null;
   private _loading: Promise<void> | null = null;
 
   readonly buyingGroups = BUYING_GROUPS;
@@ -690,6 +690,8 @@ export class AnalyticsService {
   get parentCats(): string[] { return this._meta && this._meta.parents.length ? this._meta.parents : PARENT_CATS; }
   get subcats(): { name: string; parent: string }[] { return this._meta && this._meta.subcats.length ? this._meta.subcats : SUBCATS; }
   get states(): string[] { return this._meta && this._meta.states.length ? this._meta.states : STATES; }
+  /** Proposal statuses: live (from /api/meta DISTINCT) when loaded, else the bundled fallback list. */
+  get statusList(): string[] { return this._meta && this._meta.statuses && this._meta.statuses.length ? this._meta.statuses : ["Completed", "Accepted", "Submitted", "Opened", "Draft", "Changes Required", "Declined", "Expired", "Email Failed"]; }
   /** value -> display label for states: map 2-letter codes to full names; leave full names untouched. */
   private _stateLabels: Record<string, string> | null = null;
   get stateLabels(): Record<string, string> {
@@ -711,8 +713,8 @@ export class AnalyticsService {
     const t = this.auth.token();
     if (!t) return false;
     try {
-      const d = await firstValueFrom(this.http.get<{ parents: string[]; subcats: { name: string; parent: string }[]; states: string[]; brands: string[] }>(API_BASE_URL + "/api/meta", { headers: { Authorization: "Bearer " + t } }));
-      if (d && Array.isArray(d.parents)) { this._meta = { parents: d.parents || [], subcats: d.subcats || [], states: d.states || [], brands: d.brands || [] }; this._stateLabels = null; return true; }
+      const d = await firstValueFrom(this.http.get<{ parents: string[]; subcats: { name: string; parent: string }[]; states: string[]; brands: string[]; statuses?: string[] }>(API_BASE_URL + "/api/meta", { headers: { Authorization: "Bearer " + t } }));
+      if (d && Array.isArray(d.parents)) { this._meta = { parents: d.parents || [], subcats: d.subcats || [], states: d.states || [], brands: d.brands || [], statuses: d.statuses || [] }; this._stateLabels = null; return true; }
     } catch { /* keep the bundled fallback lists */ }
     return false;
   }

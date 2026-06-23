@@ -36,7 +36,7 @@ function pool() {
 }
 
 let _cache = null; // { at, data }
-const TTL_MS = 1000 * 60 * 60 * 24; // 24h
+const TTL_MS = 1000 * 60 * 60 * 6; // 6h — surfaces nightly taxonomy additions (new brand/category/state/status) within hours
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -54,11 +54,12 @@ module.exports = async (req, res) => {
 
     const hygiene = "COALESCE(deleted, false) = false";
     const p = pool();
-    const [pc, sc, st, br] = await Promise.all([
+    const [pc, sc, st, br, su] = await Promise.all([
       p.query(`SELECT DISTINCT parentcat FROM ${FACT} WHERE parentcat IS NOT NULL AND parentcat <> '' AND ${hygiene} ORDER BY parentcat`),
       p.query(`SELECT DISTINCT parentcat, subcat FROM ${FACT} WHERE subcat IS NOT NULL AND subcat <> '' AND ${hygiene} ORDER BY parentcat, subcat`),
       p.query(`SELECT DISTINCT state FROM ${FACT} WHERE state IS NOT NULL AND state <> '' AND ${hygiene} ORDER BY state`),
       p.query(`SELECT DISTINCT brand FROM ${FACT} WHERE brand IS NOT NULL AND brand <> '' AND ${hygiene} ORDER BY brand`),
+      p.query(`SELECT DISTINCT status FROM ${FACT} WHERE status IS NOT NULL AND status <> '' AND ${hygiene} ORDER BY status`),
     ]);
 
     const data = {
@@ -66,6 +67,7 @@ module.exports = async (req, res) => {
       subcats: sc.rows.map((r) => ({ name: r.subcat, parent: r.parentcat })),
       states: st.rows.map((r) => r.state),
       brands: br.rows.map((r) => r.brand),
+      statuses: su.rows.map((r) => r.status),
     };
     _cache = { at: Date.now(), data };
     res.status(200).json(data);

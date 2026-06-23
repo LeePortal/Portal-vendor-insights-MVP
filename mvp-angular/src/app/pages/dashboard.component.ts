@@ -175,6 +175,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="submitted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Category value on Submitted proposals</h2>
     <div class="grid c2" *ngIf="submitted.length">
       <div class="pcard span2" *ngFor="let w of submitted">
+        <app-widget-tools *ngIf="!isAdmin" [filename]="w.title" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
@@ -183,6 +184,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="accepted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Accepted &amp; Completed proposals</h2>
     <div class="grid c2" *ngIf="accepted.length">
       <div class="pcard span2" *ngFor="let w of accepted">
+        <app-widget-tools *ngIf="!isAdmin" [filename]="w.title" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
@@ -294,7 +296,7 @@ export class DashboardComponent implements OnInit {
   supplierOptions = ["ADI Global", "Snap One", "Capitol Sales", "DOW Electronics", "Wave Electronics", "AVAD"]; // sample distributors (synthetic mode); live = unmapped (fact table has supplierid only)
   get stateOptions(): string[] { return this.an.states; }
   get stateLabels(): Record<string, string> { return this.an.stateLabels; }
-  statusOptions = ["Completed", "Accepted", "Submitted", "Opened", "Draft", "Changes Required", "Declined", "Expired", "Email Failed"];
+  get statusOptions(): string[] { return this.an.statusList; }  // live from /api/meta; auto-discovers new statuses
   restrictParents: string[] = [];
 
   viewAs = "admin";
@@ -382,6 +384,15 @@ export class DashboardComponent implements OnInit {
     const headers = Object.keys(arr[0]).filter((k) => typeof (arr[0] as any)[k] !== "object");
     const rows = arr.map((o: any) => headers.map((h) => o[h]));
     this.downloadCsvFile(which, headers, rows);
+  }
+  /** CSV for a proposal-funnel chart widget (Submitted / Accepted) — exports its plotted points. */
+  dualCsv(w: Widget): void {
+    const arr = w.points || [];
+    const name = (w.title || "widget").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "widget";
+    if (!arr.length) return this.downloadCsvFile(name, ["(no data)"], []);
+    const headers = Object.keys(arr[0]).filter((k) => typeof (arr[0] as any)[k] !== "object");
+    const rows = arr.map((o: any) => headers.map((h) => (o as any)[h]));
+    this.downloadCsvFile(name, headers, rows);
   }
   private downloadCsvFile(name: string, headers: string[], rows: any[][]): void {
     const esc = (v: any) => { const s = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
