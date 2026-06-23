@@ -179,17 +179,23 @@ module.exports = async (req, res) => {
       catch (e) { probes.push({ path: "/creatives", ok: false, error: String((e && e.message) || e).slice(0, 160) }); }
       const mineC = creativesRaw.filter((c) => String(c.advertiser != null ? c.advertiser : "") === aid);
       const pool = (mineC.length ? mineC : creativesRaw).slice(0, 12);
-      const creatives = []; let dbgDetail = null;
-      for (const c of pool) {
-        let imageUrl = pickImageUrl(c); let det = null;
-        // image creatives resolve at the path in `self` (/creatives/image/{id}), NOT /creatives/{id}.
-        const selfPath = c.self ? String(c.self).replace(/^\/v2/, "") : (c.id != null ? "/creatives/image/" + encodeURIComponent(String(c.id)) : "");
-        if (!imageUrl && selfPath) {
-          try { let d = await ab(selfPath); det = (d && d.data) ? d.data : d; imageUrl = pickImageUrl(det); } catch (e) { /* leave blank */ }
-        }
-        if (!dbgDetail && det) dbgDetail = det;
-        creatives.push({ bannerId: String(c.id), name: c.name || c.file_name || ("Creative " + c.id), width: num(c.width), height: num(c.height), imageUrl });
-      }
+      // getad.img/?libBID={id} serves the image. Try the CREATIVE id directly (we have those); the real
+      // serving id may instead be an Ad Item (banner) id, so also probe candidate ad-item sources below.
+      const creatives = pool.map((c) => ({
+        bannerId: String(c.id),
+        name: c.name || c.file_name || ("Creative " + c.id),
+        width: num(c.width), height: num(c.height),
+        imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
+      }));
+      // Find where Ad Item (banner) ids live (/banners & /ads 404). Report candidates + a sample row.
+      const adItemProbes = [];
+      const probe = async (path, params) => {
+        try { const r = await ab(path, params); const data = Array.isArray(r) ? r : ((r && r.data) || []); const arr = Array.isArray(data) ? data : []; adItemProbes.push({ path: path + (params ? "?" + qs(params) : ""), ok: true, count: arr.length, sample: arr[0] || null }); }
+        catch (e) { adItemProbes.push({ path: path + (params ? "?" + qs(params) : ""), ok: false, error: String((e && e.message) || e).slice(0, 140) }); }
+      };
+      await probe("/reports", { type: "banner", period: "month", from, to });
+      await probe("/reports", { type: "ad", period: "month", from, to });
+      await probe("/advertisers/" + encodeURIComponent(aid) + "/banners");
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -200,7 +206,7 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      if (!creatives.some((c) => c.imageUrl)) out.debug = { probes, advertiserId: aid, totalCreatives: creativesRaw.length, matchedCreatives: mineC.length, sampleCreative: pool[0] || null, sampleCreativeDetail: dbgDetail };
+      out.debug = { creativesProbe: probes, adItemProbes, advertiserId: aid, matchedCreatives: mineC.length, note: "imageUrl = getad.img/?libBID={creativeId} (testing whether creative ids serve). If the images are broken, the real Ad Item (banner) ids come from one of adItemProbes." };
       return res.status(200).json(out);
     }
 
