@@ -127,14 +127,18 @@ module.exports = async (req, res) => {
       const now = new Date();
       const cmFrom = iso(now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-01");
       const cmTo = iso(now.toISOString().slice(0, 10), true);
-      const [advList, all, rep, repNow] = await Promise.all([
+      const [advList, all, rep, repNow, adItemsAll] = await Promise.all([
         abPages("/advertisers"),
         abPages("/campaigns"),
         ab("/reports", { type: "campaign", period: "month", from, to }),
         ab("/reports", { type: "campaign", period: "month", from: cmFrom, to: cmTo }),
+        abPages("/ad-items").catch(() => []),
       ]);
       const advName = {};
       for (const a of advList) advName[String(a.id)] = a.name || "";
+      // Count ad-items per campaign (each campaign-parented ad-item attributes to its parent campaign).
+      const adItemCount = {};
+      for (const it of adItemsAll) { if (it && it.parent && it.parent.type === "campaign") { const pid = String(it.parent.id); adItemCount[pid] = (adItemCount[pid] || 0) + 1; } }
       const met = {};
       for (const row of (rep.data || [])) {
         const id = String(row.id); const s = row.summary || {};
@@ -148,7 +152,7 @@ module.exports = async (req, res) => {
         // Active = AdButler state isn't expired AND it actually served impressions this month. The impressions
         // test is the reliable signal; campaignActive() only catches a definite expiry (past end date / paused).
         const active = campaignActive(c) && (curImpr[id] || 0) > 0;
-        return { id, name: c.name || ("Campaign " + id), advertiserId: aid, advertiserName: advName[aid] || "", active, impressions: m.impressions, clicks: m.clicks };
+        return { id, name: c.name || ("Campaign " + id), advertiserId: aid, advertiserName: advName[aid] || "", active, impressions: m.impressions, clicks: m.clicks, adItems: adItemCount[id] || 0 };
       }).sort((a, b) => b.impressions - a.impressions);
       return res.status(200).json({ configured: true, campaigns });
     }

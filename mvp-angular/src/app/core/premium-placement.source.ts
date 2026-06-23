@@ -10,7 +10,7 @@ import { API_BASE_URL } from "./app-config";
  * its data source (callers fold in a 0 placeholder for now). `configured:false` => AdButler key not set.
  */
 export interface PpAdvertiser { id: string; name: string; }
-export interface PpCampaign { id: string; name: string; advertiserId: string; advertiserName: string; active: boolean; impressions: number; clicks: number; }
+export interface PpCampaign { id: string; name: string; advertiserId: string; advertiserName: string; active: boolean; impressions: number; clicks: number; adItems: number; }
 /** An ad-item (AdButler image_ad_item) within a campaign — the creative image plus its own metrics. */
 export interface PpCreative {
   bannerId: string; name: string; width: number; height: number; imageUrl: string;

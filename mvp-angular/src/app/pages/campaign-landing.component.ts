@@ -38,7 +38,7 @@ type Period = "mtd" | "lastmonth" | "custom";
     .lbx img { max-width:92vw; max-height:92vh; border-radius:6px; }
   `],
   template: `
-    <a routerLink="/admin" class="muted" style="font-size:12px">&larr; Back to Premium Placement</a>
+    <a [routerLink]="['/admin']" [queryParams]="{ view: 'pp' }" class="muted" style="font-size:12px">&larr; Back to Premium Placement</a>
 
     <div *ngIf="loading && !detail" class="pcard" style="margin-top:12px"><div class="bd muted" style="font-size:13px">Loading campaign…</div></div>
     <div *ngIf="!loading && !configured" class="pcard" style="margin-top:12px;border:1px solid #ff5000"><div class="bd" style="color:#ff5000;font-size:13px">AdButler isn't connected.</div></div>

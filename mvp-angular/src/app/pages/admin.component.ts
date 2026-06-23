@@ -6,7 +6,7 @@ import { VendorAdminService } from "../core/vendor-admin.service";
 import { ActivityEvent } from "../core/models";
 import { fmtDateTime, fmtNumber, relativeTime } from "../core/format";
 import { HBarsComponent, TrendChartComponent } from "../components/charts.component";
-import { RouterLink } from "@angular/router";
+import { RouterLink, ActivatedRoute } from "@angular/router";
 
 interface UserRow { name: string; email: string; logins: number; views: number; minutes: number; reportsPulled: number; csvExports: number; lastActive: number; }
 
@@ -155,7 +155,7 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
               <ng-container *ngFor="let g of ppCompanyGroups">
                 <tr (click)="togglePpCompany(g.id)" style="cursor:pointer">
                   <td style="font-weight:600"><span style="color:var(--text-muted);font-size:11px;margin-right:4px">{{ ppExpanded === g.id ? "▾" : "▸" }}</span>{{ g.name }}</td>
-                  <td class="num">{{ g.campaigns.length }}</td>
+                  <td class="num">{{ g.adItems }}</td>
                   <td class="num">{{ n(g.impressions) }}</td>
                   <td class="num">{{ n(g.clicks) }}</td>
                 </tr>
@@ -186,6 +186,7 @@ export class AdminComponent {
   private activity = inject(ActivityService);
   private va = inject(VendorAdminService);
   private pp = inject(PremiumPlacementSource);
+  private route = inject(ActivatedRoute);
 
   summary = this.activity.getSummary(30);
   topDashRows = this.activity.getTopDashboards(30).map((d) => ({ label: d.name, value: d.views }));
@@ -217,7 +218,10 @@ export class AdminComponent {
   rel = relativeTime;
   dt = fmtDateTime;
 
-  constructor() { this.recompute(); }
+  constructor() {
+    this.recompute();
+    if (this.route.snapshot.queryParamMap.get("view") === "pp") this.showPp();
+  }
 
   get rangeLabel(): string {
     return (this.ranges.find((r) => r.k === this.rangeKey) || this.ranges[0]).l;
@@ -271,12 +275,12 @@ export class AdminComponent {
   setPpStatus(s: "all" | "active" | "expired"): void { this.ppStatus = s; }  // client-side filter, no refetch
   togglePpCompany(id: string): void { this.ppExpanded = this.ppExpanded === id ? null : id; }
   /** Filtered campaigns grouped by company, for the click-to-expand list (campaigns hidden until a company is opened). */
-  get ppCompanyGroups(): { id: string; name: string; campaigns: PpCampaign[]; impressions: number; clicks: number }[] {
-    const m = new Map<string, { id: string; name: string; campaigns: PpCampaign[]; impressions: number; clicks: number }>();
+  get ppCompanyGroups(): { id: string; name: string; campaigns: PpCampaign[]; impressions: number; clicks: number; adItems: number }[] {
+    const m = new Map<string, { id: string; name: string; campaigns: PpCampaign[]; impressions: number; clicks: number; adItems: number }>();
     for (const c of this.filteredCampaigns) {
       let g = m.get(c.advertiserId);
-      if (!g) { g = { id: c.advertiserId, name: c.advertiserName || "—", campaigns: [], impressions: 0, clicks: 0 }; m.set(c.advertiserId, g); }
-      g.campaigns.push(c); g.impressions += c.impressions; g.clicks += c.clicks;
+      if (!g) { g = { id: c.advertiserId, name: c.advertiserName || "—", campaigns: [], impressions: 0, clicks: 0, adItems: 0 }; m.set(c.advertiserId, g); }
+      g.campaigns.push(c); g.impressions += c.impressions; g.clicks += c.clicks; g.adItems += c.adItems;
     }
     return [...m.values()].sort((a, b) => b.impressions - a.impressions);
   }
