@@ -160,17 +160,35 @@ module.exports = async (req, res) => {
       const campaignId = String(q.campaignId || "");
       if (!campaignId) return res.status(400).json({ error: "campaignId required" });
       const from = iso(String(q.from || "")), to = iso(String(q.to || ""), true);
-      const [allC, advList, allB] = await Promise.all([
+      const [allC, advList] = await Promise.all([
         abPages("/campaigns"),
         abPages("/advertisers").catch(() => []),
-        abPages("/banners").catch(() => []),
       ]);
       const camp = allC.find((c) => String(c.id) === campaignId) || {};
       const aid = advId(camp);
       const a = advList.find((x) => String(x.id) === aid);
       const advertiserName = a ? (a.name || "") : "";
-      const mine = allB.filter((b) => bannerCampId(b) === campaignId);
-      const creatives = []; let dbgBanner = allB[0] || null, dbgCreative = null;
+
+      // Discover this campaign's banners — the AdButler resource path/link field varies, so probe several
+      // candidates and record each outcome (so the working path + field shape are visible in `debug`).
+      const probes = [];
+      const tryList = async (path, params) => {
+        try {
+          const r = await ab(path, params);
+          const data = Array.isArray(r) ? r : ((r && r.data) || []);
+          const arr = Array.isArray(data) ? data : [];
+          probes.push({ path: path + (params ? "?" + qs(params) : ""), ok: true, count: arr.length, sampleKeys: arr[0] ? Object.keys(arr[0]) : [] });
+          return arr;
+        } catch (e) { probes.push({ path: path + (params ? "?" + qs(params) : ""), ok: false, error: String((e && e.message) || e).slice(0, 160) }); return []; }
+      };
+      let mine = [];
+      const flat = await tryList("/banners");
+      mine = flat.filter((b) => bannerCampId(b) === campaignId);
+      if (!mine.length) { const nest = await tryList("/campaigns/" + encodeURIComponent(campaignId) + "/banners"); if (nest.length) mine = nest; }
+      if (!mine.length) { const filt = await tryList("/banners", { campaign: campaignId }); if (filt.length) mine = filt; }
+      if (!mine.length && !flat.length) { await tryList("/ads"); await tryList("/creatives"); await tryList("/campaigns/" + encodeURIComponent(campaignId)); }
+
+      const creatives = []; let dbgCreative = null;
       for (const b of mine.slice(0, 12)) {
         let imageUrl = pickImageUrl(b); let creativeObj = null;
         const cref = b.creative;
@@ -191,7 +209,7 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      if (!creatives.some((c) => c.imageUrl)) out.debug = { sampleBanner: dbgBanner, sampleCreative: dbgCreative, matchedBanners: mine.length, totalBanners: allB.length };
+      if (!creatives.some((c) => c.imageUrl)) out.debug = { probes, sampleBanner: mine[0] || null, sampleCreative: dbgCreative };
       return res.status(200).json(out);
     }
 
