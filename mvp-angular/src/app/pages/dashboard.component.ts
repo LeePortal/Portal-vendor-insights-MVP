@@ -232,7 +232,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
     </div>
 
-    <div *ngIf="!isAdmin" class="pcard" style="margin-bottom:16px">
+    <div *ngIf="!isAdmin" class="pcard" style="margin-top:16px;margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
         <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><div class="s">Not affected by filters</div></div>
         <div style="display:flex;gap:18px;flex:0 0 auto;text-align:right">
@@ -243,11 +243,10 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div class="bd" style="max-height:380px;overflow:auto">
         <div *ngIf="!specDealers.count" class="muted" style="font-size:13px">No dealers specified {{ ownBrand }} in the last 30 days.</div>
         <table class="ptbl" *ngIf="specDealers.count">
-          <thead><tr><th>Dealer</th><th>City</th><th>State</th><th></th></tr></thead>
+          <thead><tr><th>Dealer</th><th style="width:90px">State</th><th style="width:70px"></th></tr></thead>
           <tbody>
             <tr *ngFor="let d of specDealers.dealers">
               <td style="font-weight:600">{{ d.name }}</td>
-              <td class="muted">{{ d.city || '—' }}</td>
               <td class="muted">{{ d.state || '—' }}</td>
               <td><span *ngIf="d.isNew" style="font-size:11px;color:var(--positive);border:1px solid var(--positive);border-radius:4px;padding:0 6px">New</span></td>
             </tr>
