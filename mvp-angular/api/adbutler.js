@@ -206,12 +206,16 @@ module.exports = async (req, res) => {
         try { const r = await ab(path); const data = Array.isArray(r) ? r : ((r && r.data) || []); const arr = Array.isArray(data) ? data : []; adItemProbes.push({ path, ok: true, count: arr.length, sample: arr[0] || null }); }
         catch (e) { adItemProbes.push({ path, ok: false, error: String((e && e.message) || e).slice(0, 200) }); }
       };
-      await tryList2("/campaigns/standard/" + encodeURIComponent(campaignId) + "/banners");
-      await tryList2("/campaigns/standard/" + encodeURIComponent(campaignId) + "/ads");
-      await tryList2("/ads");
-      await tryList2("/aditems");
+      await tryList2("/banners/image");
+      await tryList2("/ads/image");
+      await tryList2("/campaigns/standard/" + encodeURIComponent(campaignId) + "/items");
+      await tryList2("/items");
+      await tryList2("/rotations");
+      await tryList2("/placements");
+      await tryList2("/zones");
       let reportTypes = "";
-      try { await ab("/reports", { type: "zzz", period: "month", from, to }); } catch (e) { reportTypes = String((e && e.message) || e).slice(0, 600); }
+      try { await ab("/reports", { type: "zzz", period: "month", from, to }); }
+      catch (e) { const m = String((e && e.message) || e); const i = m.indexOf("{"); try { const j = JSON.parse(m.slice(i)); reportTypes = (j.parameters && j.parameters[0] && j.parameters[0].message) || m; } catch (e2) { reportTypes = m.slice(0, 1200); } }
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
