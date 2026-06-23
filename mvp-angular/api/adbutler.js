@@ -187,29 +187,28 @@ module.exports = async (req, res) => {
         width: num(c.width), height: num(c.height),
         imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
       }));
-      // Ad Items are `advertisement` objects (type image_ad_item) — surfaced via /placements (which 200'd),
-      // each linking an advertisement -> a zone on a schedule. Discover the ad-item RESOURCE (typed path like
-      // /advertisements/image/{id}, mirroring /creatives/image/{id}) and the FULL report-types enum so we can
-      // wire per-ad-item metrics next. Also dump the full campaign + a sample placement to map campaign->ad item.
+      // The valid report types include 'ad-item' — THAT is the per-ad-item impressions/clicks the dashboard's
+      // "Ad Items" table shows. Capture the ad-item report row shape (id / name / summary / any campaign link)
+      // and whether it filters by campaign/advertiser, plus the ad-item RESOURCE path (for name/image) mirroring
+      // /creatives/image/{id} and /campaigns/standard/{id}.
       const probe = async (path, params) => {
         try { const r = await ab(path, params); const arr = Array.isArray(r) ? r : ((r && r.data) || r); return { path, ok: true, count: Array.isArray(arr) ? arr.length : undefined, sample: Array.isArray(arr) ? (arr[0] || null) : arr }; }
         catch (e) { return { path, ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
       };
-      let placements = [];
-      try { placements = await abPages("/placements"); } catch (e) { /* */ }
-      const samplePlacement = placements.find((p) => p && p.advertisement && p.advertisement.id) || placements[0] || null;
-      const someAdId = samplePlacement && samplePlacement.advertisement ? samplePlacement.advertisement.id : "";
+      const reportProbe = async (params) => {
+        try { const r = await ab("/reports", params); const data = (r && r.data) || []; return { params, ok: true, count: data.length, sample: data[0] || null }; }
+        catch (e) { return { params, ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+      };
+      const adItemReports = [];
+      adItemReports.push(await reportProbe({ type: "ad-item", period: "month", from, to }));
+      adItemReports.push(await reportProbe({ type: "ad-item", period: "month", from, to, campaign: campaignId }));
+      adItemReports.push(await reportProbe({ type: "ad-item", period: "month", from, to, advertiser: aid }));
+      const firstRow = adItemReports[0].sample || {};
+      const someAdId = firstRow.id || "";
       const adItemProbes = [];
-      adItemProbes.push(await probe("/advertisements"));
-      adItemProbes.push(await probe("/advertisements/image"));
-      if (someAdId) { adItemProbes.push(await probe("/advertisements/image/" + encodeURIComponent(someAdId))); adItemProbes.push(await probe("/advertisements/" + encodeURIComponent(someAdId))); }
-      // FULL report-types enum — ab() truncates error bodies to 300 chars, so fetch directly here.
-      let reportTypes = "";
-      try {
-        const rr = await fetch(AB_BASE + "/reports?" + qs({ type: "zzz", period: "month", from, to }), { headers: { Authorization: "Basic " + KEY, Accept: "application/json" } });
-        const tt = await rr.text();
-        try { const j = JSON.parse(tt); reportTypes = (j.parameters && j.parameters[0] && j.parameters[0].message) || tt; } catch (e2) { reportTypes = tt.slice(0, 1500); }
-      } catch (e) { reportTypes = String((e && e.message) || e); }
+      adItemProbes.push(await probe("/ad-items"));
+      adItemProbes.push(await probe("/ad-items/image"));
+      if (someAdId) { adItemProbes.push(await probe("/ad-items/image/" + encodeURIComponent(someAdId))); adItemProbes.push(await probe("/banners/" + encodeURIComponent(someAdId))); }
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -220,13 +219,12 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      // DIAGNOSTIC (temporary): locate the Ad Item (advertisement) resource + report enum, map campaign->ad item.
+      // DIAGNOSTIC (temporary): lock the ad-item report row shape + campaign filter + the ad-item resource path.
       out.debug = {
         advertiserId: aid,
-        campaignObj: camp,
-        placements: { total: placements.length, distinctAdItems: [...new Set(placements.map((p) => (p.advertisement && p.advertisement.id) || "").filter(Boolean))].length, sample: samplePlacement },
+        campaignId,
+        adItemReports,
         adItemProbes,
-        reportTypes,
       };
       return res.status(200).json(out);
     }
