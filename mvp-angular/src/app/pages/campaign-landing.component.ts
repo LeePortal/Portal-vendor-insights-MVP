@@ -20,17 +20,18 @@ type Period = "mtd" | "lastmonth" | "custom";
   standalone: true,
   imports: [CommonModule, RouterLink],
   styles: [`
-    .aigrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:16px; }
-    .aicard { border:1px solid var(--border); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:10px; background:var(--surface); }
-    .aithumb { display:grid; place-items:center; background:var(--surface-2); border-radius:6px; overflow:hidden; min-height:120px; }
-    .aithumb img { max-width:100%; max-height:220px; display:block; }
+    .aigrid { display:flex; flex-direction:column; gap:14px; }
+    .aicard { display:flex; gap:18px; align-items:stretch; border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--surface); }
+    .aithumb { flex:0 0 250px; width:250px; min-height:240px; display:grid; place-items:center; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; overflow:hidden; text-decoration:none; }
+    .aithumb img { max-width:100%; max-height:320px; display:block; }
     .noimg { color:var(--text-muted); font-size:12px; padding:30px; }
-    .aihead { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-    .ainame { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .aimetrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    .stat { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:9px 11px; }
-    .stat .v { font-size:19px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text); }
-    .stat .l { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); font-weight:700; margin-top:2px; }
+    .aibody { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:14px; }
+    .aihead { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .ainame { font-size:17px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
+    .aimetrics { display:flex; flex-direction:column; gap:10px; width:170px; }
+    .stat { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:11px 14px; }
+    .stat .v { font-size:24px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text); }
+    .stat .l { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); font-weight:700; margin-top:3px; }
   `],
   template: `
     <a routerLink="/admin" class="muted" style="font-size:12px">&larr; Back to Premium Placement</a>
@@ -82,13 +83,15 @@ type Period = "mtd" | "lastmonth" | "custom";
                 <img *ngIf="cr.imageUrl" [src]="cr.imageUrl" [alt]="cr.name" />
                 <div *ngIf="!cr.imageUrl" class="noimg">No image</div>
               </div>
-              <div class="aihead">
-                <span class="ainame" [title]="cr.name">{{ cr.name }}</span>
-                <span class="sub-badge" [ngClass]="cr.active ? 'active' : 'expired'">{{ cr.active ? 'Active' : 'Inactive' }}</span>
-              </div>
-              <div class="aimetrics">
-                <div class="stat"><div class="v">{{ n(cr.impressions) }}</div><div class="l">Impressions</div></div>
-                <div class="stat"><div class="v">{{ n(cr.clicks) }}</div><div class="l">Clicks</div></div>
+              <div class="aibody">
+                <div class="aihead">
+                  <span class="ainame" [title]="cr.name">{{ cr.name }}</span>
+                  <span class="sub-badge" [ngClass]="cr.active ? 'active' : 'none'">{{ cr.active ? 'Active' : 'Inactive' }}</span>
+                </div>
+                <div class="aimetrics">
+                  <div class="stat"><div class="v">{{ n(cr.impressions) }}</div><div class="l">Impressions</div></div>
+                  <div class="stat"><div class="v">{{ n(cr.clicks) }}</div><div class="l">Clicks</div></div>
+                </div>
               </div>
             </div>
           </div>
