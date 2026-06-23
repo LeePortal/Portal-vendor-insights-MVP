@@ -188,6 +188,17 @@ module.exports = async (req, res) => {
         imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
       }));
       // Confirmed: the creative id works directly as the getad.img libBID, so no Ad Item lookup is needed.
+      // DIAGNOSTIC: find the per-ad-item / per-creative metrics query (type=banner/ad 400'd when unscoped).
+      const metricsProbe = [];
+      const mp = async (params) => {
+        try { const r = await ab("/reports", params); const rows = (r && r.data) || []; metricsProbe.push({ params, ok: true, count: rows.length, sample: rows[0] || null }); }
+        catch (e) { metricsProbe.push({ params, ok: false, error: String((e && e.message) || e).slice(0, 220) }); }
+      };
+      await mp({ type: "banner", campaign: campaignId, period: "month", from, to });
+      await mp({ type: "banner", advertiser: aid, period: "month", from, to });
+      await mp({ type: "ad", campaign: campaignId, period: "month", from, to });
+      await mp({ type: "creative", advertiser: aid, period: "month", from, to });
+      await mp({ type: "creative", period: "month", from, to });
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -198,8 +209,8 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      // Only surface diagnostics if this advertiser has no creatives to show.
-      if (!creatives.length) out.debug = { creativesProbe: probes, advertiserId: aid, totalCreatives: creativesRaw.length, matchedCreatives: mineC.length };
+      // DIAGNOSTIC (temporary): surface the metrics-query probe so the per-ad-item report can be located.
+      out.debug = { metricsProbe, sampleCreativeIds: pool.slice(0, 3).map((c) => String(c.id)), advertiserId: aid, matchedCreatives: mineC.length };
       return res.status(200).json(out);
     }
 
