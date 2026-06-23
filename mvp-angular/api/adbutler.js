@@ -188,17 +188,17 @@ module.exports = async (req, res) => {
         imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
       }));
       // Confirmed: the creative id works directly as the getad.img libBID, so no Ad Item lookup is needed.
-      // DIAGNOSTIC: find the per-ad-item / per-creative metrics query (type=banner/ad 400'd when unscoped).
-      const metricsProbe = [];
-      const mp = async (params) => {
-        try { const r = await ab("/reports", params); const rows = (r && r.data) || []; metricsProbe.push({ params, ok: true, count: rows.length, sample: rows[0] || null }); }
-        catch (e) { metricsProbe.push({ params, ok: false, error: String((e && e.message) || e).slice(0, 700) }); }
-      };
-      await mp({ type: "banner", period: "month", from, to });
-      await mp({ type: "banner", campaign: campaignId, period: "month", from, to });
-      await mp({ type: "ad", period: "month", from, to });
-      await mp({ type: "creative", period: "month", from, to });
-      await mp({ type: "campaign", campaign: campaignId, period: "month", from, to });
+      // The dashboard's "Ad Items" appear to BE the API's campaigns. Inspect this advertiser's campaigns:
+      // names (do they match the Ad Items?), a full campaign object (any creative/banner link for the image?),
+      // and their per-campaign metrics.
+      const advCampaigns = allC.filter((c) => advId(c) === aid);
+      let campMetrics = [];
+      try {
+        const rep2 = await ab("/reports", { type: "campaign", period: "month", from, to });
+        campMetrics = (rep2.data || [])
+          .filter((row) => advCampaigns.some((c) => String(c.id) === String(row.id)))
+          .map((row) => ({ id: String(row.id), impressions: num((row.summary || {}).impressions), clicks: num((row.summary || {}).clicks) }));
+      } catch (e) { /* */ }
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -209,8 +209,14 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      // DIAGNOSTIC (temporary): surface the metrics-query probe so the per-ad-item report can be located.
-      out.debug = { metricsProbe, sampleCreativeIds: pool.slice(0, 3).map((c) => String(c.id)), advertiserId: aid, matchedCreatives: mineC.length };
+      // DIAGNOSTIC (temporary): confirm Ad Items == campaigns and find the campaign→creative/image link.
+      out.debug = {
+        advertiserId: aid,
+        adItemCampaigns: advCampaigns.map((c) => ({ id: String(c.id), name: c.name || "" })),
+        fullCampaignSample: advCampaigns[0] || null,
+        campaignMetrics: campMetrics,
+        sampleCreativeIds: pool.slice(0, 4).map((c) => ({ id: String(c.id), name: c.name || c.file_name || "" })),
+      };
       return res.status(200).json(out);
     }
 
