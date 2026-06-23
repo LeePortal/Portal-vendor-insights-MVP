@@ -243,9 +243,9 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       <div class="bd" style="max-height:380px;overflow:auto">
         <div *ngIf="!specDealers.count" class="muted" style="font-size:13px">No dealers specified {{ ownBrand }} in the last 30 days.</div>
         <table class="ptbl" *ngIf="specDealers.count" style="table-layout:fixed;width:100%">
-          <thead><tr><th>Dealer</th><th>State</th><th>New</th></tr></thead>
+          <thead><tr><th class="sort" (click)="sortDealers('name')" style="cursor:pointer">Dealer {{ dealerArrow('name') }}</th><th class="sort" (click)="sortDealers('state')" style="cursor:pointer">State {{ dealerArrow('state') }}</th><th class="sort" (click)="sortDealers('new')" style="cursor:pointer">New {{ dealerArrow('new') }}</th></tr></thead>
           <tbody>
-            <tr *ngFor="let d of specDealers.dealers">
+            <tr *ngFor="let d of sortedDealers">
               <td style="font-weight:600">{{ d.name }}</td>
               <td class="muted">{{ d.state || '—' }}</td>
               <td><span *ngIf="d.isNew" style="font-size:11px;color:var(--positive);border:1px solid var(--positive);border-radius:4px;padding:0 6px">New</span></td>
@@ -298,6 +298,8 @@ export class DashboardComponent implements OnInit {
   ownBrand = "";   // the vendor's own brand (locked target for their competitive widgets)
   brandQuery = ""; // type-ahead text for the Brand filter
   specDealers: { count: number; newCount: number; dealers: { name: string; city: string; state: string; isNew: boolean }[] } = { count: 0, newCount: 0, dealers: [] };  // vendor-only, filter-independent
+  dealerSort: "name" | "state" | "new" = "new";
+  dealerDir = -1;
   agg = "monthly";
   horizon = "YTD";
   fromDate = "";
@@ -357,6 +359,18 @@ export class DashboardComponent implements OnInit {
   get focusBrand(): string { return this.isAdmin ? this.viewAs : this.ownBrand; }
   /** Live brand suggestions (every Portal brand) that START WITH what's typed; capped for the dropdown. */
   get brandSuggest(): string[] { const q = this.brandQuery.toLowerCase().trim(); return q ? this.an.brandList.filter((b) => b.toLowerCase().startsWith(q)).slice(0, 8) : []; }
+  get sortedDealers(): { name: string; city: string; state: string; isNew: boolean }[] {
+    const k = this.dealerSort, d = this.dealerDir;
+    return [...this.specDealers.dealers].sort((a, b) => {
+      let av: string | number, bv: string | number;
+      if (k === "name") { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
+      else if (k === "state") { av = (a.state || "").toLowerCase(); bv = (b.state || "").toLowerCase(); }
+      else { av = a.isNew ? 1 : 0; bv = b.isNew ? 1 : 0; }
+      return av < bv ? -d : av > bv ? d : 0;
+    });
+  }
+  sortDealers(k: "name" | "state" | "new"): void { if (this.dealerSort === k) this.dealerDir *= -1; else { this.dealerSort = k; this.dealerDir = k === "new" ? -1 : 1; } }
+  dealerArrow(k: "name" | "state" | "new"): string { return this.dealerSort === k ? (this.dealerDir > 0 ? "▲" : "▼") : ""; }
   get subOptions(): string[] { return this.parents.length ? this.an.subsForParents(this.parents) : []; }
 
   /** Pre-select every category/sub-category the user is allowed to see (so nothing looks hidden). */
