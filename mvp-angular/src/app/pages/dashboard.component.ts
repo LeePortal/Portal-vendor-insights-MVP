@@ -95,7 +95,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
 
     <div class="pcard" style="margin-bottom:16px">
       <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
-        <div><div class="t">Revenue — period over period</div><app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="widgetFile('pop')" (csvOut)="widgetCsv('pop')"></app-widget-tools><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
+        <div><div class="t">Revenue — period over period</div><app-widget-tools [chart]="true" [filename]="widgetFile('pop')" (csvOut)="widgetCsv('pop')"></app-widget-tools><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
         <div style="display:flex;gap:16px;align-items:center;flex:0 0 auto">
           <div style="text-align:right"><div style="font-size:20px;font-weight:600">{{ money(kpis.revenue) }}</div><div class="muted" style="font-size:12px">this period</div></div>
           <div class="delta" [style.color]="dcol(kpis.revenueYoY)" style="font-size:14px">{{ yoyStr(kpis.revenueYoY) }} YoY</div>
@@ -111,7 +111,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="widgetFile('compindex')" (csvOut)="widgetCsv('compindex')"></app-widget-tools><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
+      <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><app-widget-tools [chart]="true" [filename]="widgetFile('compindex')" (csvOut)="widgetCsv('compindex')"></app-widget-tools><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
       <div class="bd">
         <div class="comp-wrap">
           <div class="comp-list">
@@ -129,7 +129,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Category Share by Brand</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('brandshare')" (csvOut)="widgetCsv('brandshare')"></app-widget-tools><div class="s">Every brand matching the filters</div></div>
+      <div class="hd"><div class="t">Category Share by Brand</div><app-widget-tools [filename]="widgetFile('brandshare')" (csvOut)="widgetCsv('brandshare')"></app-widget-tools><div class="s">Every brand matching the filters</div></div>
       <div class="bd" style="max-height:380px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>#</th><th>Brand</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Unit Share %</th><th class="num">Avg Unit $</th><th class="num"># SKUs</th></tr></thead>
@@ -146,7 +146,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Category Share by Item</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('item')" (csvOut)="widgetCsv('item')"></app-widget-tools><div class="s">Every SKU matching the filters ({{ itemRows.length }})</div></div>
+      <div class="hd"><div class="t">Category Share by Item</div><app-widget-tools [filename]="widgetFile('item')" (csvOut)="widgetCsv('item')"></app-widget-tools><div class="s">Every SKU matching the filters ({{ itemRows.length }})</div></div>
       <div class="bd" style="max-height:420px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>#</th><th>Brand</th><th>Model</th><th>Category</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Avg Sell $</th></tr></thead>
@@ -161,7 +161,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Sub-Category Sales Breakdown</div><app-widget-tools *ngIf="!isAdmin" [filename]="widgetFile('subcat')" (csvOut)="widgetCsv('subcat')"></app-widget-tools></div>
+      <div class="hd"><div class="t">Sub-Category Sales Breakdown</div><app-widget-tools [filename]="widgetFile('subcat')" (csvOut)="widgetCsv('subcat')"></app-widget-tools></div>
       <div class="bd" style="max-height:380px;overflow:auto">
         <table class="ptbl">
           <thead><tr><th>Sub-category</th><th class="num">Total Sales</th><th class="num">$ % of Category</th><th class="num"># Units</th><th class="num">Unit % of Category</th><th class="num">Avg Sell $</th></tr></thead>
@@ -175,7 +175,7 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="submitted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Category value on Submitted proposals</h2>
     <div class="grid c2" *ngIf="submitted.length">
       <div class="pcard span2" *ngFor="let w of submitted">
-        <app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
+        <app-widget-tools [chart]="true" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
@@ -184,14 +184,14 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     <h2 *ngIf="accepted.length" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Accepted &amp; Completed proposals</h2>
     <div class="grid c2" *ngIf="accepted.length">
       <div class="pcard span2" *ngFor="let w of accepted">
-        <app-widget-tools *ngIf="!isAdmin" [chart]="true" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
+        <app-widget-tools [chart]="true" [filename]="dlName(w.title)" (csvOut)="dualCsv(w)"></app-widget-tools>
         <div class="hd"><div class="t">{{ w.title }}</div><div class="s"><b style="font-size:18px;color:var(--text)">{{ w.value }}</b> <span [style.color]="w.yoy >= 0 ? 'var(--positive)' : 'var(--negative)'">▲ {{ w.yoy }}%</span> YoY</div></div>
         <div class="bd"><app-dual [points]="w.points" [showBrand]="w.hasBrand" [brandLabel]="focusBrand" [valueFormat]="w.vfmt" [yLabel]="w.ylabel" xLabel="Month"></app-dual></div>
       </div>
     </div>
 
-    <h2 *ngIf="(won.length || lost.length) && !isAdmin" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
-    <div class="grid c2" style="align-items:start" *ngIf="(won.length || lost.length) && !isAdmin">
+    <h2 *ngIf="(won.length || lost.length) && (!isAdmin || viewAs !== 'admin')" style="font-size:17px;margin:22px 0 12px;border-top:1px solid var(--border);padding-top:18px">Competitive displacement</h2>
+    <div class="grid c2" style="align-items:start" *ngIf="(won.length || lost.length) && (!isAdmin || viewAs !== 'admin')">
       <div class="pcard">
         <div class="hd"><div class="t" style="color:var(--positive)">Business won — competitors displaced</div><app-widget-tools [filename]="widgetFile('won')" (csvOut)="widgetCsv('won')"></app-widget-tools><div class="s">Line items where {{ focusBrand }} replaced a competitor</div></div>
         <div class="bd" style="max-height:440px;overflow:auto">
