@@ -199,6 +199,19 @@ module.exports = async (req, res) => {
           .filter((row) => advCampaigns.some((c) => String(c.id) === String(row.id)))
           .map((row) => ({ id: String(row.id), impressions: num((row.summary || {}).impressions), clicks: num((row.summary || {}).clicks) }));
       } catch (e) { /* */ }
+      // Find the Ad Item (banner) list. Typed self-paths (/campaigns/standard/{id}) mean ads likely sit at a
+      // typed/nested path — plain /banners and /ads 404'd. Also grab the full valid report-types list.
+      const adItemProbes = [];
+      const tryList2 = async (path) => {
+        try { const r = await ab(path); const data = Array.isArray(r) ? r : ((r && r.data) || []); const arr = Array.isArray(data) ? data : []; adItemProbes.push({ path, ok: true, count: arr.length, sample: arr[0] || null }); }
+        catch (e) { adItemProbes.push({ path, ok: false, error: String((e && e.message) || e).slice(0, 200) }); }
+      };
+      await tryList2("/campaigns/standard/" + encodeURIComponent(campaignId) + "/banners");
+      await tryList2("/campaigns/standard/" + encodeURIComponent(campaignId) + "/ads");
+      await tryList2("/ads");
+      await tryList2("/aditems");
+      let reportTypes = "";
+      try { await ab("/reports", { type: "zzz", period: "month", from, to }); } catch (e) { reportTypes = String((e && e.message) || e).slice(0, 600); }
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -212,10 +225,9 @@ module.exports = async (req, res) => {
       // DIAGNOSTIC (temporary): confirm Ad Items == campaigns and find the campaign→creative/image link.
       out.debug = {
         advertiserId: aid,
-        adItemCampaigns: advCampaigns.map((c) => ({ id: String(c.id), name: c.name || "" })),
-        fullCampaignSample: advCampaigns[0] || null,
-        campaignMetrics: campMetrics,
-        sampleCreativeIds: pool.slice(0, 4).map((c) => ({ id: String(c.id), name: c.name || c.file_name || "" })),
+        campaign: { id: campaignId, name: (advCampaigns[0] || {}).name || "", metrics: campMetrics },
+        adItemProbes,
+        reportTypes,
       };
       return res.status(200).json(out);
     }
