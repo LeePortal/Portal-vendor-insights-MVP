@@ -5,44 +5,56 @@ import { PremiumPlacementSource, PpCreative, PpCampaignDetail } from "../core/pr
 import { fmtNumber } from "../core/format";
 
 type ItemFilter = "active" | "inactive" | "all";
+type Period = "mtd" | "lastmonth" | "custom";
 
 /**
  * Admin campaign landing page (Premium Placement / Spotlight). Shows one campaign's meta + period
- * impressions/clicks, and its AD ITEMS (creatives) as individual metric widgets — each ad-item's image
+ * impressions/clicks, and its AD ITEMS (creatives) as individual metric cards — each ad-item's image
  * anchors its own impressions/clicks. Reached from the admin Campaigns accordion; the period flows in via
- * ?from=&to= (defaults to MTD on a direct hit). Ad items are pre-sorted newest-uploaded first by the proxy;
- * an Active / Inactive / All filter (default Active) narrows the grid. Active = served impressions this month.
+ * ?from=&to= (defaults to MTD on a direct hit) and can be changed in-page via the Period filter (MTD /
+ * Last month / Custom). Ad items are pre-sorted newest-uploaded first by the proxy; an Active / Inactive /
+ * All filter (default Active) narrows the grid. Active = served impressions this month.
  */
 @Component({
   selector: "app-campaign-landing",
   standalone: true,
   imports: [CommonModule, RouterLink],
   styles: [`
-    .seg { display:flex; gap:4px; background:var(--surface-2); border-radius:8px; padding:3px; }
-    .seg-btn { border:0; background:transparent; color:var(--muted); font-size:12px; padding:5px 10px; border-radius:6px; cursor:pointer; }
-    .seg-btn.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.08); }
     .aigrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:16px; }
-    .aicard { border:1px solid var(--border); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:8px; }
+    .aicard { border:1px solid var(--border); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:10px; background:var(--surface); }
     .aithumb { display:grid; place-items:center; background:var(--surface-2); border-radius:6px; overflow:hidden; min-height:120px; }
     .aithumb img { max-width:100%; max-height:220px; display:block; }
-    .noimg { color:var(--muted); font-size:12px; padding:30px; }
+    .noimg { color:var(--text-muted); font-size:12px; padding:30px; }
     .aihead { display:flex; justify-content:space-between; align-items:center; gap:8px; }
     .ainame { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .aimetrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding-top:8px; border-top:1px solid var(--border); }
-    .m-v { font-size:18px; font-weight:700; line-height:1.1 }
-    .m-l { font-size:11px; color:var(--muted) }
+    .aimetrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .stat { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:9px 11px; }
+    .stat .v { font-size:19px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text); }
+    .stat .l { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); font-weight:700; margin-top:2px; }
   `],
   template: `
     <a routerLink="/admin" class="muted" style="font-size:12px">&larr; Back to Premium Placement</a>
 
-    <div *ngIf="loading" class="pcard" style="margin-top:12px"><div class="bd muted" style="font-size:13px">Loading campaign…</div></div>
+    <div *ngIf="loading && !detail" class="pcard" style="margin-top:12px"><div class="bd muted" style="font-size:13px">Loading campaign…</div></div>
     <div *ngIf="!loading && !configured" class="pcard" style="margin-top:12px;border:1px solid #ff5000"><div class="bd" style="color:#ff5000;font-size:13px">AdButler isn't connected.</div></div>
     <div *ngIf="!loading && configured && !detail" class="pcard" style="margin-top:12px"><div class="bd muted" style="font-size:13px">Campaign not found.</div></div>
 
-    <ng-container *ngIf="!loading && configured && detail as d">
+    <ng-container *ngIf="detail as d">
       <div class="page-head" style="margin-top:10px">
         <h1>{{ d.name }}</h1>
         <p>{{ d.advertiserName || "Unknown company" }} &middot; <span class="sub-badge" [ngClass]="d.active ? 'active' : 'expired'">{{ d.active ? "Active" : "Expired" }}</span></p>
+      </div>
+
+      <div class="filterbar" style="align-items:flex-end">
+        <div class="filt"><label>Period</label>
+          <div class="tgl">
+            <button [class.on]="period === 'mtd'" (click)="setPeriod('mtd')">MTD</button>
+            <button [class.on]="period === 'lastmonth'" (click)="setPeriod('lastmonth')">Last month</button>
+            <button [class.on]="period === 'custom'" (click)="setPeriod('custom')">Custom</button>
+          </div>
+        </div>
+        <div class="filt" *ngIf="period === 'custom'"><label>From</label><input class="minput" type="date" [value]="cFrom" (change)="onCustom($event, 's')" /></div>
+        <div class="filt" *ngIf="period === 'custom'"><label>To</label><input class="minput" type="date" [value]="cTo" (change)="onCustom($event, 'e')" /></div>
       </div>
 
       <div class="grid c4" style="margin-bottom:16px">
@@ -54,8 +66,8 @@ type ItemFilter = "active" | "inactive" | "all";
       <div class="pcard">
         <div class="hd" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div><div class="t">Ad items</div><div class="s">Each creative's own impressions &amp; clicks for the selected period &middot; newest uploaded first</div></div>
-          <div class="seg">
-            <button *ngFor="let f of filters" class="seg-btn" [class.on]="itemFilter === f.key" (click)="itemFilter = f.key">{{ f.label }} ({{ f.count }})</button>
+          <div class="tgl">
+            <button *ngFor="let f of filters" [class.on]="itemFilter === f.key" (click)="itemFilter = f.key">{{ f.label }} ({{ f.count }})</button>
           </div>
         </div>
         <div class="bd">
@@ -75,10 +87,9 @@ type ItemFilter = "active" | "inactive" | "all";
                 <span class="sub-badge" [ngClass]="cr.active ? 'active' : 'expired'">{{ cr.active ? 'Active' : 'Inactive' }}</span>
               </div>
               <div class="aimetrics">
-                <div><div class="m-v">{{ n(cr.impressions) }}</div><div class="m-l">Impressions</div></div>
-                <div><div class="m-v">{{ n(cr.clicks) }}</div><div class="m-l">Clicks</div></div>
+                <div class="stat"><div class="v">{{ n(cr.impressions) }}</div><div class="l">Impressions</div></div>
+                <div class="stat"><div class="v">{{ n(cr.clicks) }}</div><div class="l">Clicks</div></div>
               </div>
-              <div class="muted" style="font-size:11px">{{ cr.width }}&times;{{ cr.height }}</div>
             </div>
           </div>
         </div>
@@ -95,6 +106,10 @@ export class CampaignLandingComponent implements OnInit {
   detail: PpCampaignDetail | null = null;
   creatives: PpCreative[] = [];
   itemFilter: ItemFilter = "active";
+  period: Period = "mtd";
+  cFrom = "";
+  cTo = "";
+  private id = "";
 
   get activeCount(): number { return this.creatives.filter((c) => c.active).length; }
 
@@ -111,14 +126,42 @@ export class CampaignLandingComponent implements OnInit {
     return this.creatives.filter((c) => (this.itemFilter === "all" ? true : this.itemFilter === "active" ? c.active : !c.active));
   }
 
-  async ngOnInit(): Promise<void> {
-    const id = this.route.snapshot.paramMap.get("id") || "";
+  private ymd(d: Date): string { return d.toISOString().slice(0, 10); }
+  private presetRange(p: Period): { from: string; to: string } {
+    const now = new Date();
+    if (p === "lastmonth") return { from: this.ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: this.ymd(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    return { from: this.ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: this.ymd(now) }; // mtd
+  }
+  private range(): { from: string; to: string } {
+    return this.period === "custom" ? { from: this.cFrom, to: this.cTo } : this.presetRange(this.period);
+  }
+
+  setPeriod(p: Period): void { this.period = p; if (p !== "custom") this.load(); }
+  onCustom(ev: Event, which: "s" | "e"): void {
+    const v = (ev.target as HTMLInputElement).value;
+    if (which === "s") this.cFrom = v; else this.cTo = v;
+    if (this.period === "custom" && this.cFrom && this.cTo) this.load();
+  }
+
+  ngOnInit(): void {
+    this.id = this.route.snapshot.paramMap.get("id") || "";
     const qp = this.route.snapshot.queryParamMap;
-    const now = new Date(); const ymd = (dt: Date) => dt.toISOString().slice(0, 10);
-    const from = qp.get("from") || ymd(new Date(now.getFullYear(), now.getMonth(), 1));
-    const to = qp.get("to") || ymd(now);
+    const qf = qp.get("from") || "", qt = qp.get("to") || "";
+    const mtd = this.presetRange("mtd"), lm = this.presetRange("lastmonth");
+    if (qf && qt) {
+      if (qf === mtd.from && qt === mtd.to) this.period = "mtd";
+      else if (qf === lm.from && qt === lm.to) this.period = "lastmonth";
+      else { this.period = "custom"; this.cFrom = qf; this.cTo = qt; }
+    }
+    this.load();
+  }
+
+  async load(): Promise<void> {
+    const { from, to } = this.range();
+    if (!from || !to) return;
+    this.loading = true;
     try {
-      const r = await this.pp.campaign(id, from, to);
+      const r = await this.pp.campaign(this.id, from, to);
       this.configured = r.configured; this.detail = r.campaign; this.creatives = r.creatives;
     } finally {
       this.loading = false;
