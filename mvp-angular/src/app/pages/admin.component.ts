@@ -16,9 +16,15 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
   template: `
     <div class="page-head">
       <h1>Admin — Vendor Engagement</h1>
-      <p>How brands and manufacturers use Market Insights. First-party activity tracking (modeled on Periscope Usage Data).</p>
+      <p>How brands and manufacturers use Market Insights and Premium Placement. First-party activity tracking (modeled on Periscope Usage Data).</p>
     </div>
 
+    <div class="tgl" style="margin-bottom:16px">
+      <button [class.on]="prod === 'mi'" (click)="prod = 'mi'">Market Insights</button>
+      <button [class.on]="prod === 'pp'" (click)="prod = 'pp'">Premium Placement</button>
+    </div>
+
+    <div *ngIf="prod === 'mi'">
     <div class="grid c4" style="margin-bottom:16px">
       <div class="pcard kpi"><div class="label">Total logins</div><div class="value">{{ n(summary.totalLogins) }}</div><div class="delta flat">last 30 days</div></div>
       <div class="pcard kpi"><div class="label">Active brands</div><div class="value">{{ n(summary.activeVendors) }}</div><div class="delta flat">signed in ≥ 1 time</div></div>
@@ -97,6 +103,25 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
         </div>
       </div>
     </div>
+    </div>
+
+    <div *ngIf="prod === 'pp'">
+      <div class="grid c4" style="margin-bottom:16px">
+        <div class="pcard kpi"><div class="label">Ad impressions</div><div class="value">—</div><div class="delta flat">Spotlight + Featured</div></div>
+        <div class="pcard kpi"><div class="label">Clicks</div><div class="value">—</div><div class="delta flat">all placements</div></div>
+        <div class="pcard kpi"><div class="label">Click-through rate</div><div class="value">—</div><div class="delta flat">clicks ÷ impressions</div></div>
+        <div class="pcard kpi"><div class="label">Active advertisers</div><div class="value">—</div><div class="delta flat">running placements</div></div>
+      </div>
+      <!-- TODO(premium-placement): wire real PP activity here once the advertiser (user) view is scoped —
+           Spotlight live from AdButler, Featured Products from its source. NO synthetic data until then. -->
+      <div class="pcard">
+        <div class="hd"><div class="t">Premium Placement activity</div><div class="s">Impressions, clicks &amp; advertiser engagement across Spotlight &amp; Featured Products</div></div>
+        <div class="bd" style="padding:30px;text-align:center;color:var(--text-muted)">
+          <div style="font-size:14px;font-weight:600;margin-bottom:6px">No activity to show yet</div>
+          <div style="font-size:13px;max-width:560px;margin:0 auto">Premium Placement activity will populate here once the advertiser (user) view is built. Spotlight metrics will come live from AdButler; Featured Products impressions/clicks are pending their data source. No sample data is shown.</div>
+        </div>
+      </div>
+    </div>
   `,
 })
 export class AdminComponent {
@@ -111,6 +136,7 @@ export class AdminComponent {
 
   ranges = [{ k: "all", l: "All time" }, { k: "ytd", l: "YTD" }, { k: "mtd", l: "MTD" }, { k: "wtd", l: "WTD" }, { k: "custom", l: "Custom" }];
   rangeKey = "all";
+  prod: "mi" | "pp" = "mi";  // which product line's activity is shown
   cStart = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
   cEnd = new Date().toISOString().slice(0, 10);
   expanded: string | null = null;
