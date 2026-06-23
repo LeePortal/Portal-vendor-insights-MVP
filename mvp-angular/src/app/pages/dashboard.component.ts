@@ -242,8 +242,8 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
       </div>
       <div class="bd" style="max-height:380px;overflow:auto">
         <div *ngIf="!specDealers.count" class="muted" style="font-size:13px">No dealers specified {{ ownBrand }} in the last 30 days.</div>
-        <table class="ptbl" *ngIf="specDealers.count">
-          <thead><tr><th>Dealer</th><th style="width:90px">State</th><th style="width:70px"></th></tr></thead>
+        <table class="ptbl" *ngIf="specDealers.count" style="table-layout:fixed;width:100%">
+          <thead><tr><th>Dealer</th><th>State</th><th>New</th></tr></thead>
           <tbody>
             <tr *ngFor="let d of specDealers.dealers">
               <td style="font-weight:600">{{ d.name }}</td>
