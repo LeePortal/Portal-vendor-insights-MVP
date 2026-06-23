@@ -169,35 +169,24 @@ module.exports = async (req, res) => {
       const a = advList.find((x) => String(x.id) === aid);
       const advertiserName = a ? (a.name || "") : "";
 
-      // Discover this campaign's banners — the AdButler resource path/link field varies, so probe several
-      // candidates and record each outcome (so the working path + field shape are visible in `debug`).
+      // This AdButler account exposes /creatives (not /banners), each tied to an `advertiser` (no campaign
+      // link in the API). Show the campaign's advertiser's image creatives. The list has no URL field, so for
+      // each we also pull /creatives/{id} detail (which may carry the served image URL) and report a full
+      // sample in `debug` so the exact image field can be locked.
       const probes = [];
-      const tryList = async (path, params) => {
-        try {
-          const r = await ab(path, params);
-          const data = Array.isArray(r) ? r : ((r && r.data) || []);
-          const arr = Array.isArray(data) ? data : [];
-          probes.push({ path: path + (params ? "?" + qs(params) : ""), ok: true, count: arr.length, sampleKeys: arr[0] ? Object.keys(arr[0]) : [] });
-          return arr;
-        } catch (e) { probes.push({ path: path + (params ? "?" + qs(params) : ""), ok: false, error: String((e && e.message) || e).slice(0, 160) }); return []; }
-      };
-      let mine = [];
-      const flat = await tryList("/banners");
-      mine = flat.filter((b) => bannerCampId(b) === campaignId);
-      if (!mine.length) { const nest = await tryList("/campaigns/" + encodeURIComponent(campaignId) + "/banners"); if (nest.length) mine = nest; }
-      if (!mine.length) { const filt = await tryList("/banners", { campaign: campaignId }); if (filt.length) mine = filt; }
-      if (!mine.length && !flat.length) { await tryList("/ads"); await tryList("/creatives"); await tryList("/campaigns/" + encodeURIComponent(campaignId)); }
-
-      const creatives = []; let dbgCreative = null;
-      for (const b of mine.slice(0, 12)) {
-        let imageUrl = pickImageUrl(b); let creativeObj = null;
-        const cref = b.creative;
-        if (!imageUrl && cref && typeof cref === "object") { creativeObj = cref; imageUrl = pickImageUrl(cref); }
-        else if (!imageUrl && cref != null && cref !== "") {
-          try { let cr = await ab("/creatives/" + encodeURIComponent(String(cref))); cr = (cr && cr.data) ? cr.data : cr; creativeObj = cr; imageUrl = pickImageUrl(cr); } catch (e) { /* leave blank */ }
+      let creativesRaw = [];
+      try { creativesRaw = await abPages("/creatives"); probes.push({ path: "/creatives", ok: true, count: creativesRaw.length }); }
+      catch (e) { probes.push({ path: "/creatives", ok: false, error: String((e && e.message) || e).slice(0, 160) }); }
+      const mineC = creativesRaw.filter((c) => String(c.advertiser != null ? c.advertiser : "") === aid);
+      const pool = (mineC.length ? mineC : creativesRaw).slice(0, 12);
+      const creatives = []; let dbgDetail = null;
+      for (const c of pool) {
+        let imageUrl = pickImageUrl(c); let det = null;
+        if (!imageUrl && c.id != null) {
+          try { let d = await ab("/creatives/" + encodeURIComponent(String(c.id))); det = (d && d.data) ? d.data : d; imageUrl = pickImageUrl(det); } catch (e) { /* leave blank */ }
         }
-        if (!dbgCreative && creativeObj) dbgCreative = creativeObj;
-        creatives.push({ bannerId: String(b.id), name: b.name || ("Banner " + b.id), width: num(b.width), height: num(b.height), imageUrl });
+        if (!dbgDetail && det) dbgDetail = det;
+        creatives.push({ bannerId: String(c.id), name: c.name || c.file_name || ("Creative " + c.id), width: num(c.width), height: num(c.height), imageUrl });
       }
       let impressions = 0, clicks = 0;
       try {
@@ -209,7 +198,7 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      if (!creatives.some((c) => c.imageUrl)) out.debug = { probes, sampleBanner: mine[0] || null, sampleCreative: dbgCreative };
+      if (!creatives.some((c) => c.imageUrl)) out.debug = { probes, advertiserId: aid, totalCreatives: creativesRaw.length, matchedCreatives: mineC.length, sampleCreative: pool[0] || null, sampleCreativeDetail: dbgDetail };
       return res.status(200).json(out);
     }
 
