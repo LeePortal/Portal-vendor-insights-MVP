@@ -11,7 +11,7 @@ export interface BrandPerfPayload {
   subcatRows: SubcatRow[];
   share: ShareSeries;
   kpis: BrandKpis;
-  revByPeriod: { labels: string[]; values: number[] };
+  revByPeriod: { labels: string[]; values: number[]; prior: number[] };
   submitted: ProposalSeriesResult[];
   accepted: ProposalSeriesResult[];
   won: WonRow[];

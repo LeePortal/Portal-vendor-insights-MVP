@@ -926,13 +926,27 @@ export class AnalyticsService {
   /* ---- Competitive activity (synthetic, brand-aware) ---- */
   competitiveBrand(f: AFilter): string { return f.brand && f.brand !== "admin" ? f.brand : this.brandList[0]; }
 
+  /** Synthetic "new dealers (30d)" count for offline mode (api mode uses /api/new-dealers). */
+  dealersSpeccingSynthetic(brand: string): { count: number; newCount: number; dealers: { name: string; isNew: boolean }[] } {
+    const total = Math.min(DEALERS.length, 8 + Math.round(rng((brand || "b") + "spec") * 8));
+    const start = Math.floor(rng((brand || "b") + "specs") * Math.max(1, DEALERS.length - total));
+    const picked = DEALERS.slice(start, start + total);
+    const newN = Math.min(picked.length, 2 + Math.round(rng((brand || "b") + "new") * 4));
+    return { count: picked.length, newCount: newN, dealers: picked.map((name, i) => ({ name, isNew: i < newN })) };
+  }
+
   /** Synthetic revenue-by-period for the Home trend (api mode returns the live revByPeriod instead). */
-  revByPeriod(f: AFilter): { labels: string[]; values: number[] } {
+  revByPeriod(f: AFilter): { labels: string[]; values: number[]; prior: number[] } {
     const labels = this.shareSeries(f).labels;
     const total = this.brandKpis(f).revenue;
     const w = labels.map((_, i) => 0.7 + rng((f.brand || "all") + "rev" + i) * 0.6);
     const wsum = w.reduce((a, b) => a + b, 0) || 1;
-    return { labels, values: w.map((x) => Math.round((total * x) / wsum)) };
+    const values = w.map((x) => Math.round((total * x) / wsum));
+    const pw = labels.map((_, i) => 0.6 + rng((f.brand || "all") + "prev" + i) * 0.55);
+    const pwsum = pw.reduce((a, b) => a + b, 0) || 1;
+    const priorTotal = total / (1.1 + rng((f.brand || "all") + "yoy") * 0.4);
+    const prior = pw.map((x) => Math.round((priorTotal * x) / pwsum));
+    return { labels, values, prior };
   }
   newDealers(f: AFilter): { count: number; columns: string[]; rows: (string | number)[][] } {
     const brand = this.competitiveBrand(f);

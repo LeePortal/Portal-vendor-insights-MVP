@@ -190,7 +190,7 @@ module.exports = async (req, res) => {
     const p = pool();
 
     // run all five aggregates concurrently (separate pooled connections)
-    const [brandRes, subRes, itemRes, seriesRes, kpiRes] = await Promise.all([
+    const [brandRes, subRes, itemRes, seriesRes, kpiRes, priorSeriesRes] = await Promise.all([
       p.query(
         `SELECT brand, SUM(total_sell) AS sales, SUM(quantity) AS units, COUNT(DISTINCT model) AS skus
          FROM ${FACT} WHERE ${whereH} GROUP BY brand ORDER BY sales DESC`, fb.vals),
@@ -214,6 +214,12 @@ module.exports = async (req, res) => {
                 ${curCnt("proposalid")} AS prop_cur, ${prevCnt("proposalid")} AS prop_prev,
                 ${curCnt("dealerid")} AS deal_cur, ${prevCnt("dealerid")} AS deal_prev
          FROM ${FACT} WHERE ${fb.where}${brandClause}${normCond}`, kvals),
+      p.query(
+        // Prior-year revenue per period for the period-over-period chart. DATEADD(+1yr) shifts the
+        // prior window's dates forward so they DATE_TRUNC into the SAME buckets as the current window.
+        `SELECT brand, DATE_TRUNC('${u}', DATEADD(year, 1, submitted)) AS period, SUM(total_sell) AS sales
+         FROM ${FACT} WHERE ${fb.where} AND submitted IS NOT NULL AND ${pwin("submitted")}${normCond}
+         GROUP BY brand, DATE_TRUNC('${u}', DATEADD(year, 1, submitted)) ORDER BY period`, fb.vals),
     ]);
 
     const brandRows = brandRes.rows.map((r) => ({
@@ -254,11 +260,19 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Revenue by period — reuses the series data (no extra query): the focal brand's revenue when one
-    // is in focus, otherwise the whole filtered market total. Powers the Home trend (and future YoY).
+    // Prior-year revenue per period (already shifted +1yr in SQL, so it shares the current period keys).
+    const priorCell = new Map(), priorTotals = new Map();
+    for (const r of priorSeriesRes.rows) {
+      const k = pkey(r.period);
+      priorTotals.set(k, (priorTotals.get(k) || 0) + num(r.sales));
+      priorCell.set(r.brand + "|" + k, num(r.sales));
+    }
+    // Revenue by period — current vs the same window a year earlier (period over period). Focal brand's
+    // revenue when one is in focus, otherwise the whole filtered market total.
     const revByPeriod = {
       labels,
       values: periodKeys.map((k) => (tenant.brand ? (cell.get(tenant.brand + "|" + k) || 0) : (periodsMap.get(k).total || 0))),
+      prior: periodKeys.map((k) => (tenant.brand ? (priorCell.get(tenant.brand + "|" + k) || 0) : (priorTotals.get(k) || 0))),
     };
 
     const k = kpiRes.rows[0] || {};

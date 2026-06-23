@@ -92,6 +92,39 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
+      <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+        <div><div class="t">Revenue — period over period</div><div class="s">{{ horizon }} vs. the same period last year · by {{ agg }}</div></div>
+        <div style="display:flex;gap:16px;align-items:center;flex:0 0 auto">
+          <div style="text-align:right"><div style="font-size:20px;font-weight:600">{{ money(kpis.revenue) }}</div><div class="muted" style="font-size:12px">this period</div></div>
+          <div class="delta" [style.color]="dcol(kpis.revenueYoY)" style="font-size:14px">{{ yoyStr(kpis.revenueYoY) }} YoY</div>
+        </div>
+      </div>
+      <div class="bd">
+        <div style="display:flex;gap:18px;font-size:12px;color:var(--text-muted);margin-bottom:8px">
+          <span><span style="display:inline-block;width:14px;border-top:3px solid #ff5000;vertical-align:middle"></span> This period</span>
+          <span><span style="display:inline-block;width:14px;border-top:3px solid #8a8a82;vertical-align:middle"></span> Same period last year</span>
+        </div>
+        <app-multiline [series]="popSeries" [axis]="popAxis" yLabel="Revenue ($)" xLabel="Period" valueFormat="money"></app-multiline>
+      </div>
+    </div>
+
+    <div *ngIf="!isAdmin" class="pcard" style="margin-bottom:16px">
+      <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+        <div><div class="t">Dealers specifying {{ ownBrand }} - last 30 days</div><div class="s">Not affected by filters</div></div>
+        <div style="display:flex;gap:18px;flex:0 0 auto;text-align:right">
+          <div><div style="font-size:20px;font-weight:600">{{ specDealers.count }}</div><div class="muted" style="font-size:12px">dealers</div></div>
+          <div><div style="font-size:20px;font-weight:600;color:var(--positive)">{{ specDealers.newCount }}</div><div class="muted" style="font-size:12px">new</div></div>
+        </div>
+      </div>
+      <div class="bd">
+        <div *ngIf="!specDealers.count" class="muted" style="font-size:13px">No dealers specified {{ ownBrand }} in the last 30 days.</div>
+        <div *ngIf="specDealers.count" class="chips">
+          <span class="chip" *ngFor="let d of specDealers.dealers">{{ d.name }}<span *ngIf="d.isNew" style="font-size:11px;color:var(--positive);border:1px solid var(--positive);border-radius:4px;padding:0 6px;margin-left:6px">New</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pcard" style="margin-bottom:16px">
       <div class="hd"><div class="t">Competitive index — brand share of category $ by {{ agg }}</div><div class="s">Share is calculated against the <b>total</b> selected category. Toggle brands to compare; top 10 shown by default.</div></div>
       <div class="bd">
         <div class="comp-wrap">
@@ -257,6 +290,7 @@ export class DashboardComponent implements OnInit {
   viewAs = "admin";
   ownBrand = "";   // the vendor's own brand (locked target for their competitive widgets)
   brandQuery = ""; // type-ahead text for the Brand filter
+  specDealers: { count: number; newCount: number; dealers: { name: string; isNew: boolean }[] } = { count: 0, newCount: 0, dealers: [] };  // vendor-only, filter-independent
   agg = "monthly";
   horizon = "YTD";
   fromDate = "";
@@ -277,6 +311,8 @@ export class DashboardComponent implements OnInit {
   compRows: BrandShareRow[] = [];
   compSeries: MultiSeries[] = [];
   compAxis: string[] = [];
+  popSeries: MultiSeries[] = [];
+  popAxis: string[] = [];
   selectedBrands: string[] = [];
   submitted: Widget[] = [];
   accepted: Widget[] = [];
@@ -306,6 +342,7 @@ export class DashboardComponent implements OnInit {
     }
     this.selectAllCats();
     this.rebuild(true);
+    if (!this.isAdmin) this.src.dealersSpeccing(this.ownBrand).then((d) => (this.specDealers = d)).catch(() => {});
   }
 
   get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents, this.dataMode === "api"); }
@@ -354,6 +391,11 @@ export class DashboardComponent implements OnInit {
       else this.selectedBrands = this.selectedBrands.filter((b) => present.has(b));
       this.buildCompSeries(p.share.series);
       this.kpis = p.kpis;
+      this.popAxis = p.revByPeriod.labels;
+      this.popSeries = [
+        { label: "This period", values: p.revByPeriod.values, color: "#ff5000" },
+        { label: "Same period last year", values: p.revByPeriod.prior, color: "#8a8a82" },
+      ];
       this.won = p.won;
       this.lost = p.lost;
       this.catSales = this.brandRows.reduce((s, r) => s + r.sales, 0);

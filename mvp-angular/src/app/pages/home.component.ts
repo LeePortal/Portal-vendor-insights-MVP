@@ -5,7 +5,7 @@ import { DataService } from "../core/data.service";
 import { AFilter } from "../core/analytics.service";
 import { BrandPerformanceSource, HealthCheck } from "../core/brand-performance.source";
 import { DATA_MODE } from "../core/app-config";
-import { TrendChartComponent } from "../components/charts.component";
+import { TrendChartComponent, MultiLineChartComponent, MultiSeries } from "../components/charts.component";
 import { fmtCompact, fmtNumber } from "../core/format";
 
 interface Kp { label: string; value: string; yoy: number; }
@@ -13,7 +13,7 @@ interface Kp { label: string; value: string; yoy: number; }
 @Component({
   selector: "app-home",
   standalone: true,
-  imports: [CommonModule, TrendChartComponent],
+  imports: [CommonModule, TrendChartComponent, MultiLineChartComponent],
   template: `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:center">
       <div>
@@ -49,8 +49,14 @@ interface Kp { label: string; value: string; yoy: number; }
     </div>
 
     <div class="pcard">
-      <div class="hd"><div class="t">Sales performance</div><div class="s">Revenue by month, trailing 12 months</div></div>
-      <div class="bd"><app-trend [points]="trendPts" yLabel="Revenue ($)" xLabel="Month" valueFormat="money"></app-trend></div>
+      <div class="hd"><div class="t">Sales performance</div><div class="s">Revenue by month — trailing 12 months vs. prior year</div></div>
+      <div class="bd">
+        <div style="display:flex;gap:18px;font-size:12px;color:var(--text-muted);margin-bottom:8px">
+          <span><span style="display:inline-block;width:14px;border-top:3px solid #ff5000;vertical-align:middle"></span> This year</span>
+          <span><span style="display:inline-block;width:14px;border-top:3px solid #8a8a82;vertical-align:middle"></span> Last year</span>
+        </div>
+        <app-multiline [series]="trendSeries" [axis]="trendAxis" yLabel="Revenue ($)" xLabel="Month" valueFormat="money"></app-multiline>
+      </div>
     </div>
   `,
   styles: [`
@@ -68,7 +74,8 @@ export class HomeComponent implements OnInit {
   firstName = (this.session.name || "").trim().split(/\s+/)[0] || this.session.name;
 
   kpis: Kp[] = [];
-  trendPts: { label: string; value: number }[] = [];
+  trendSeries: MultiSeries[] = [];
+  trendAxis: string[] = [];
   dataMode = DATA_MODE;
   statusChecks: HealthCheck[] = [];
   statusLoading = false;
@@ -94,7 +101,11 @@ export class HomeComponent implements OnInit {
         { label: this.isAdmin ? "Revenue" : "Brand revenue", value: fmtCompact(p.kpis.revenue), yoy: p.kpis.revenueYoY },
         { label: "Units sold", value: fmtNumber(p.kpis.units), yoy: p.kpis.unitsYoY },
       ];
-      this.trendPts = (p.revByPeriod.labels || []).map((l, i) => ({ label: l, value: (p.revByPeriod.values || [])[i] || 0 }));
+      this.trendAxis = p.revByPeriod.labels || [];
+      this.trendSeries = [
+        { label: "This year", values: p.revByPeriod.values || [], color: "#ff5000" },
+        { label: "Last year", values: p.revByPeriod.prior || [], color: "#8a8a82" },
+      ];
       this.loadError = "";
     } catch (e: any) {
       this.loadError = "Couldn't load live data: " + ((e && e.message) || e);
