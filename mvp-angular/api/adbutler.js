@@ -187,28 +187,31 @@ module.exports = async (req, res) => {
         width: num(c.width), height: num(c.height),
         imageUrl: "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(c.id)),
       }));
-      // The valid report types include 'ad-item' — THAT is the per-ad-item impressions/clicks the dashboard's
-      // "Ad Items" table shows. Capture the ad-item report row shape (id / name / summary / any campaign link)
-      // and whether it filters by campaign/advertiser, plus the ad-item RESOURCE path (for name/image) mirroring
-      // /creatives/image/{id} and /campaigns/standard/{id}.
+      // ad-item report (type=ad-item) gives per-ad-item impressions/clicks but is NOT filterable by campaign
+      // (the campaign/advertiser params are ignored — identical 41 rows). ad-items carry no advertiser/campaign
+      // field either, only a `parent`. So find the campaign->ad-item link: nested campaign collection, a list
+      // filter, or `parent.id==campaign`. Campaign-model ad-items should parent to the campaign; legacy ones to a zone.
       const probe = async (path, params) => {
-        try { const r = await ab(path, params); const arr = Array.isArray(r) ? r : ((r && r.data) || r); return { path, ok: true, count: Array.isArray(arr) ? arr.length : undefined, sample: Array.isArray(arr) ? (arr[0] || null) : arr }; }
-        catch (e) { return { path, ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
+        try { const r = await ab(path, params); const arr = Array.isArray(r) ? r : ((r && r.data) || r); return { path, params: params || null, ok: true, count: Array.isArray(arr) ? arr.length : undefined, sample: Array.isArray(arr) ? (arr[0] || null) : arr }; }
+        catch (e) { return { path, params: params || null, ok: false, error: String((e && e.message) || e).slice(0, 140) }; }
       };
-      const reportProbe = async (params) => {
-        try { const r = await ab("/reports", params); const data = (r && r.data) || []; return { params, ok: true, count: data.length, sample: data[0] || null }; }
-        catch (e) { return { params, ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
-      };
-      const adItemReports = [];
-      adItemReports.push(await reportProbe({ type: "ad-item", period: "month", from, to }));
-      adItemReports.push(await reportProbe({ type: "ad-item", period: "month", from, to, campaign: campaignId }));
-      adItemReports.push(await reportProbe({ type: "ad-item", period: "month", from, to, advertiser: aid }));
-      const firstRow = adItemReports[0].sample || {};
-      const someAdId = firstRow.id || "";
-      const adItemProbes = [];
-      adItemProbes.push(await probe("/ad-items"));
-      adItemProbes.push(await probe("/ad-items/image"));
-      if (someAdId) { adItemProbes.push(await probe("/ad-items/image/" + encodeURIComponent(someAdId))); adItemProbes.push(await probe("/banners/" + encodeURIComponent(someAdId))); }
+      const mapProbes = [];
+      mapProbes.push(await probe("/campaigns/standard/" + encodeURIComponent(campaignId) + "/ad-items"));
+      mapProbes.push(await probe("/campaigns/standard/" + encodeURIComponent(campaignId) + "/placements"));
+      mapProbes.push(await probe("/ad-items", { campaign: campaignId }));
+      // Scan ad-items for a campaign linkage in `parent` (bounded to avoid timeout).
+      let adItemsAll = [];
+      try {
+        for (let off = 0, i = 0; i < 8; i++, off += 100) {
+          const r = await ab("/ad-items", { limit: 100, offset: off });
+          const d = (r && r.data) || []; adItemsAll.push(...d);
+          if (!r || !r.has_more) break;
+        }
+      } catch (e) { /* */ }
+      const parentTypes = {};
+      for (const it of adItemsAll) { const t = (it.parent && it.parent.type) || "none"; parentTypes[t] = (parentTypes[t] || 0) + 1; }
+      const parentedToCampaign = adItemsAll.filter((it) => it.parent && String(it.parent.id) === campaignId).map((it) => ({ id: it.id, name: it.name, parentType: it.parent.type }));
+      const sampleParents = adItemsAll.slice(0, 6).map((it) => ({ id: it.id, name: it.name, parent: it.parent, created_date: it.created_date }));
       let impressions = 0, clicks = 0;
       try {
         const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
@@ -219,12 +222,15 @@ module.exports = async (req, res) => {
         campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
         creatives,
       };
-      // DIAGNOSTIC (temporary): lock the ad-item report row shape + campaign filter + the ad-item resource path.
+      // DIAGNOSTIC (temporary): find the campaign->ad-item link (nested / list-filter / parent scan).
       out.debug = {
-        advertiserId: aid,
         campaignId,
-        adItemReports,
-        adItemProbes,
+        advertiserId: aid,
+        mapProbes,
+        adItemsTotal: adItemsAll.length,
+        parentTypes,
+        parentedToCampaign,
+        sampleParents,
       };
       return res.status(200).json(out);
     }
