@@ -74,6 +74,16 @@ function campaignActive(c) {
   return true;
 }
 
+// Best-effort image URL from a banner or creative object — checks the common AdButler field names.
+function pickImageUrl(o) {
+  if (!o || typeof o !== "object") return "";
+  const cands = [o.image_url, o.imageUrl, o.url, o.source, o.src, o.media_url, o.preview, o.preview_url, o.cdn_url, o.thumbnail, o.thumbnail_url, o.file, o.path, o.creative_url];
+  for (const c of cands) if (typeof c === "string" && /^https?:\/\//i.test(c)) return c;
+  if (o.media && typeof o.media === "object") { const u = o.media.url || o.media.src || o.media.cdn_url || o.media.source; if (typeof u === "string" && /^https?:\/\//i.test(u)) return u; }
+  return "";
+}
+const bannerCampId = (b) => String(b.campaign != null ? b.campaign : (b.campaign_id != null ? b.campaign_id : (b.campaignId != null ? b.campaignId : "")));
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -141,6 +151,48 @@ module.exports = async (req, res) => {
         return { id, name: c.name || ("Campaign " + id), advertiserId: aid, advertiserName: advName[aid] || "", active, impressions: m.impressions, clicks: m.clicks };
       }).sort((a, b) => b.impressions - a.impressions);
       return res.status(200).json({ configured: true, campaigns });
+    }
+
+    if (action === "campaign") {
+      // One campaign's detail: meta + period impressions/clicks + its banners' creative IMAGE urls.
+      // Image resolution is best-effort across AdButler field names; if none resolve, `debug` returns the
+      // raw banner/creative so the field can be mapped from live data.
+      const campaignId = String(q.campaignId || "");
+      if (!campaignId) return res.status(400).json({ error: "campaignId required" });
+      const from = iso(String(q.from || "")), to = iso(String(q.to || ""), true);
+      const [allC, advList, allB] = await Promise.all([
+        abPages("/campaigns"),
+        abPages("/advertisers").catch(() => []),
+        abPages("/banners").catch(() => []),
+      ]);
+      const camp = allC.find((c) => String(c.id) === campaignId) || {};
+      const aid = advId(camp);
+      const a = advList.find((x) => String(x.id) === aid);
+      const advertiserName = a ? (a.name || "") : "";
+      const mine = allB.filter((b) => bannerCampId(b) === campaignId);
+      const creatives = []; let dbgBanner = allB[0] || null, dbgCreative = null;
+      for (const b of mine.slice(0, 12)) {
+        let imageUrl = pickImageUrl(b); let creativeObj = null;
+        const cref = b.creative;
+        if (!imageUrl && cref && typeof cref === "object") { creativeObj = cref; imageUrl = pickImageUrl(cref); }
+        else if (!imageUrl && cref != null && cref !== "") {
+          try { let cr = await ab("/creatives/" + encodeURIComponent(String(cref))); cr = (cr && cr.data) ? cr.data : cr; creativeObj = cr; imageUrl = pickImageUrl(cr); } catch (e) { /* leave blank */ }
+        }
+        if (!dbgCreative && creativeObj) dbgCreative = creativeObj;
+        creatives.push({ bannerId: String(b.id), name: b.name || ("Banner " + b.id), width: num(b.width), height: num(b.height), imageUrl });
+      }
+      let impressions = 0, clicks = 0;
+      try {
+        const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
+        for (const row of (rep.data || [])) if (String(row.id) === campaignId) { const s = row.summary || {}; impressions += num(s.impressions); clicks += num(s.clicks); }
+      } catch (e) { /* metrics optional */ }
+      const out = {
+        configured: true,
+        campaign: { id: campaignId, name: camp.name || ("Campaign " + campaignId), advertiserId: aid, advertiserName, active: campaignActive(camp), impressions, clicks },
+        creatives,
+      };
+      if (!creatives.some((c) => c.imageUrl)) out.debug = { sampleBanner: dbgBanner, sampleCreative: dbgCreative, matchedBanners: mine.length, totalBanners: allB.length };
+      return res.status(200).json(out);
     }
 
     return res.status(400).json({ error: "Unknown action" });

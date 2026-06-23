@@ -164,7 +164,7 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
                     <table class="ptbl" style="margin:0">
                       <thead><tr><th style="padding-left:30px">Campaign</th><th>Status</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
                       <tbody>
-                        <tr *ngFor="let c of g.campaigns">
+                        <tr *ngFor="let c of g.campaigns" [routerLink]="['/admin/premium/campaign', c.id]" [queryParams]="{ from: ppRange().from, to: ppRange().to }" style="cursor:pointer">
                           <td style="padding-left:30px;font-weight:600">{{ c.name }}</td>
                           <td><span class="sub-badge" [ngClass]="c.active ? 'active' : 'expired'">{{ c.active ? "Active" : "Expired" }}</span></td>
                           <td class="num">{{ n(c.impressions) }}</td>
@@ -281,7 +281,7 @@ export class AdminComponent {
     return [...m.values()].sort((a, b) => b.impressions - a.impressions);
   }
 
-  private ppRange(): { from: string; to: string } {
+  ppRange(): { from: string; to: string } {
     const now = new Date(); const ymd = (d: Date) => d.toISOString().slice(0, 10);
     if (this.ppPeriod === "mtd") return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: ymd(now) };
     if (this.ppPeriod === "lastmonth") return { from: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: ymd(new Date(now.getFullYear(), now.getMonth(), 0)) };

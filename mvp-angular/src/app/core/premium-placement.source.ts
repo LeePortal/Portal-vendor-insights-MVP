@@ -11,6 +11,8 @@ import { API_BASE_URL } from "./app-config";
  */
 export interface PpAdvertiser { id: string; name: string; }
 export interface PpCampaign { id: string; name: string; advertiserId: string; advertiserName: string; active: boolean; impressions: number; clicks: number; }
+export interface PpCreative { bannerId: string; name: string; width: number; height: number; imageUrl: string; }
+export interface PpCampaignDetail { id: string; name: string; advertiserId: string; advertiserName: string; active: boolean; impressions: number; clicks: number; }
 
 @Injectable({ providedIn: "root" })
 export class PremiumPlacementSource {
@@ -34,6 +36,16 @@ export class PremiumPlacementSource {
       const r = await firstValueFrom(this.http.get<{ configured: boolean; impressions?: number; clicks?: number }>(this.base + q, { headers: this.hdr() }));
       return { configured: !!(r && r.configured), impressions: (r && r.impressions) || 0, clicks: (r && r.clicks) || 0 };
     } catch { return { configured: false, impressions: 0, clicks: 0 }; }
+  }
+
+  /** One campaign's detail: meta, period impressions/clicks, and its creative image(s). `debug` carries the raw
+   *  AdButler banner/creative when no image URL resolved, so the field can be mapped. */
+  async campaign(id: string, from: string, to: string): Promise<{ configured: boolean; campaign: PpCampaignDetail | null; creatives: PpCreative[]; debug?: unknown }> {
+    const q = "?action=campaign&campaignId=" + encodeURIComponent(id) + "&from=" + from + "&to=" + to;
+    try {
+      const r = await firstValueFrom(this.http.get<{ configured: boolean; campaign?: PpCampaignDetail; creatives?: PpCreative[]; debug?: unknown }>(this.base + q, { headers: this.hdr() }));
+      return { configured: !!(r && r.configured), campaign: (r && r.campaign) || null, creatives: (r && r.creatives) || [], debug: r && r.debug };
+    } catch { return { configured: false, campaign: null, creatives: [] }; }
   }
 
   /** All Spotlight campaigns (every advertiser) with owning company, active/expired state, and period impressions/clicks. */
