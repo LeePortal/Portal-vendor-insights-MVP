@@ -58,6 +58,22 @@ const iso = (ymd, end) => (ymd ? ymd + (end ? "T23:59:59+00:00" : "T00:00:00+00:
 const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v) || 0);
 const advId = (c) => String(c.advertiser != null ? c.advertiser : (c.advertiser_id != null ? c.advertiser_id : (c.advertiserId != null ? c.advertiserId : "")));
 
+// Is a campaign currently running (Active) vs ended (Expired)? Best-effort from AdButler fields:
+// explicit active flag, else an end date in the past, else a status/state string; defaults to active
+// when there's no signal. VERIFY the field names against a live /campaigns response.
+function campaignActive(c) {
+  if (typeof c.active === "boolean") return c.active;
+  if (typeof c.is_active === "boolean") return c.is_active;
+  const end = c.end_date || c.enddate || c.end || c.date_end || c.flight_end || "";
+  if (end) { const t = Date.parse(end); if (!isNaN(t) && t < Date.now()) return false; }
+  const st = String(c.status || c.state || "").toLowerCase();
+  if (st) {
+    if (/(pause|archiv|expir|inactive|ended|complete|stop|disab|draft|pending)/.test(st)) return false;
+    if (/(run|active|live|enabl|start)/.test(st)) return true;
+  }
+  return true;
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -94,20 +110,35 @@ module.exports = async (req, res) => {
     }
 
     if (action === "campaigns") {
+      // Returns ALL campaigns (across advertisers) with owning company, active/expired state, and the
+      // period's impressions/clicks. The UI filters by Company + Status client-side.
       const from = iso(String(q.from || "")), to = iso(String(q.to || ""), true);
-      const advertiserId = q.advertiserId ? String(q.advertiserId) : "";
-      const all = await abPages("/campaigns");
-      const mine = advertiserId ? all.filter((c) => advId(c) === advertiserId) : all;
-      const rep = await ab("/reports", { type: "campaign", period: "month", from, to });
+      // Current month (server clock) — used to decide Active vs Expired by real delivery, independent of the Period filter.
+      const now = new Date();
+      const cmFrom = iso(now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-01");
+      const cmTo = iso(now.toISOString().slice(0, 10), true);
+      const [advList, all, rep, repNow] = await Promise.all([
+        abPages("/advertisers"),
+        abPages("/campaigns"),
+        ab("/reports", { type: "campaign", period: "month", from, to }),
+        ab("/reports", { type: "campaign", period: "month", from: cmFrom, to: cmTo }),
+      ]);
+      const advName = {};
+      for (const a of advList) advName[String(a.id)] = a.name || "";
       const met = {};
       for (const row of (rep.data || [])) {
         const id = String(row.id); const s = row.summary || {};
         if (!met[id]) met[id] = { impressions: 0, clicks: 0 };
         met[id].impressions += num(s.impressions); met[id].clicks += num(s.clicks);
       }
-      const campaigns = mine.map((c) => {
-        const id = String(c.id); const m = met[id] || { impressions: 0, clicks: 0 };
-        return { id, name: c.name || ("Campaign " + id), impressions: m.impressions, clicks: m.clicks };
+      const curImpr = {};
+      for (const row of (repNow.data || [])) { const id = String(row.id); curImpr[id] = (curImpr[id] || 0) + num((row.summary || {}).impressions); }
+      const campaigns = all.map((c) => {
+        const id = String(c.id); const aid = advId(c); const m = met[id] || { impressions: 0, clicks: 0 };
+        // Active = AdButler state isn't expired AND it actually served impressions this month. The impressions
+        // test is the reliable signal; campaignActive() only catches a definite expiry (past end date / paused).
+        const active = campaignActive(c) && (curImpr[id] || 0) > 0;
+        return { id, name: c.name || ("Campaign " + id), advertiserId: aid, advertiserName: advName[aid] || "", active, impressions: m.impressions, clicks: m.clicks };
       }).sort((a, b) => b.impressions - a.impressions);
       return res.status(200).json({ configured: true, campaigns });
     }

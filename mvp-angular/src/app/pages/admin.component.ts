@@ -117,11 +117,18 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
         </div>
         <div class="filt" *ngIf="ppPeriod === 'custom'"><label>From</label><input class="minput" type="date" [value]="ppFrom" (change)="onPpCustom($event, 's')" /></div>
         <div class="filt" *ngIf="ppPeriod === 'custom'"><label>To</label><input class="minput" type="date" [value]="ppTo" (change)="onPpCustom($event, 'e')" /></div>
-        <div class="filt"><label>Company <span class="muted" style="font-weight:400">— select to see its campaigns</span></label>
+        <div class="filt"><label>Company</label>
           <select class="minput" (change)="onPpCompany($any($event.target).value)">
             <option value="">All companies</option>
             <option *ngFor="let a of ppAdvertisers" [value]="a.id" [selected]="a.id === ppCompany">{{ a.name }}</option>
           </select>
+        </div>
+        <div class="filt"><label>Status</label>
+          <div class="tgl">
+            <button [class.on]="ppStatus === 'all'" (click)="setPpStatus('all')">All</button>
+            <button [class.on]="ppStatus === 'active'" (click)="setPpStatus('active')">Active</button>
+            <button [class.on]="ppStatus === 'expired'" (click)="setPpStatus('expired')">Expired</button>
+          </div>
         </div>
       </div>
 
@@ -138,15 +145,20 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
       <!-- TODO(premium-placement): Featured Products impressions/clicks fold into ppFeaturedImpressions/ppFeaturedClicks
            once their source exists; today they are 0. Spotlight is live from AdButler via /api/adbutler. -->
       <div class="pcard" *ngIf="ppConfigured">
-        <div class="hd"><div class="t">Active campaigns<span *ngIf="ppCompanyName"> — {{ ppCompanyName }}</span></div><div class="s">{{ ppCompany ? "Spotlight campaigns for this company, this period" : "Select a company above to see its campaigns" }}</div></div>
-        <div class="bd">
+        <div class="hd"><div class="t">Campaigns<span *ngIf="ppCompanyName"> — {{ ppCompanyName }}</span></div><div class="s">{{ filteredCampaigns.length }} {{ ppStatus === 'active' ? 'active' : ppStatus === 'expired' ? 'expired' : '' }} campaign(s) · impressions &amp; clicks for the selected period</div></div>
+        <div class="bd" style="max-height:480px;overflow:auto">
           <div *ngIf="ppLoading" class="muted" style="font-size:13px">Loading…</div>
-          <div *ngIf="!ppLoading && !ppCompany" class="muted" style="font-size:13px">Choose a company to list its active campaigns and their impressions/clicks.</div>
-          <div *ngIf="!ppLoading && ppCompany && !ppCampaigns.length" class="muted" style="font-size:13px">No campaigns with activity for this company in the selected period.</div>
-          <table class="ptbl" *ngIf="!ppLoading && ppCompany && ppCampaigns.length">
-            <thead><tr><th>Campaign</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
+          <div *ngIf="!ppLoading && !filteredCampaigns.length" class="muted" style="font-size:13px">No campaigns match the current filters.</div>
+          <table class="ptbl" *ngIf="!ppLoading && filteredCampaigns.length">
+            <thead><tr><th>Company</th><th>Campaign</th><th>Status</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
             <tbody>
-              <tr *ngFor="let c of ppCampaigns"><td style="font-weight:600">{{ c.name }}</td><td class="num">{{ n(c.impressions) }}</td><td class="num">{{ n(c.clicks) }}</td></tr>
+              <tr *ngFor="let c of filteredCampaigns">
+                <td>{{ c.advertiserName || "—" }}</td>
+                <td style="font-weight:600">{{ c.name }}</td>
+                <td><span class="sub-badge" [ngClass]="c.active ? 'active' : 'expired'">{{ c.active ? "Active" : "Expired" }}</span></td>
+                <td class="num">{{ n(c.impressions) }}</td>
+                <td class="num">{{ n(c.clicks) }}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -173,11 +185,11 @@ export class AdminComponent {
   ppFrom = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   ppTo = new Date().toISOString().slice(0, 10);
   ppCompany = "";
+  ppStatus: "all" | "active" | "expired" = "all";
   ppAdvertisers: PpAdvertiser[] = [];
-  ppCampaigns: PpCampaign[] = [];
+  ppAllCampaigns: PpCampaign[] = [];
   ppConfigured = true;
   ppLoading = false;
-  ppImpressions = 0; ppClicks = 0;
   ppFeaturedImpressions = 0; ppFeaturedClicks = 0; // TODO: Featured Products — fold in once its data source exists
   private ppLoaded = false;
   cStart = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
@@ -223,15 +235,23 @@ export class AdminComponent {
   }
 
   // ---- Premium Placement (admin view) ----
-  get ppTotalImpressions(): number { return this.ppImpressions + this.ppFeaturedImpressions; }
-  get ppTotalClicks(): number { return this.ppClicks + this.ppFeaturedClicks; }
-  get activeAdvertisers(): number { return this.ppAdvertisers.length; }  // filter-independent count from AdButler
+  /** Campaigns after the Company + Status filters (Period is applied when the metrics are fetched). */
+  get filteredCampaigns(): PpCampaign[] {
+    return this.ppAllCampaigns.filter((c) =>
+      (!this.ppCompany || c.advertiserId === this.ppCompany) &&
+      (this.ppStatus === "all" || (this.ppStatus === "active" ? c.active : !c.active)));
+  }
+  get ppTotalImpressions(): number { return this.filteredCampaigns.reduce((s, c) => s + c.impressions, 0) + this.ppFeaturedImpressions; }
+  get ppTotalClicks(): number { return this.filteredCampaigns.reduce((s, c) => s + c.clicks, 0) + this.ppFeaturedClicks; }
+  /** Distinct companies with at least one active (running) campaign — from AdButler, NOT subject to the filters. */
+  get activeAdvertisers(): number { return new Set(this.ppAllCampaigns.filter((c) => c.active).map((c) => c.advertiserId)).size; }
   get ppCompanyName(): string { const a = this.ppAdvertisers.find((x) => x.id === this.ppCompany); return a ? a.name : ""; }
 
   showPp(): void { this.prod = "pp"; if (!this.ppLoaded) { this.ppLoaded = true; this.loadPpAdvertisers(); this.refreshPp(); } }
   setPpPeriod(p: "mtd" | "lastmonth" | "custom"): void { this.ppPeriod = p; this.refreshPp(); }
   onPpCustom(ev: Event, which: "s" | "e"): void { const v = (ev.target as HTMLInputElement).value; if (which === "s") this.ppFrom = v; else this.ppTo = v; if (this.ppPeriod === "custom") this.refreshPp(); }
-  onPpCompany(id: string): void { this.ppCompany = id || ""; this.refreshPp(); }
+  onPpCompany(id: string): void { this.ppCompany = id || ""; }   // client-side filter, no refetch
+  setPpStatus(s: "all" | "active" | "expired"): void { this.ppStatus = s; }  // client-side filter, no refetch
 
   private ppRange(): { from: string; to: string } {
     const now = new Date(); const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -247,10 +267,9 @@ export class AdminComponent {
     const { from, to } = this.ppRange();
     this.ppLoading = true;
     try {
-      const s = await this.pp.summary(from, to, this.ppCompany);
-      this.ppConfigured = s.configured; this.ppImpressions = s.impressions; this.ppClicks = s.clicks;
-      if (this.ppCompany) { const c = await this.pp.campaigns(this.ppCompany, from, to); this.ppCampaigns = c.campaigns; }
-      else { this.ppCampaigns = []; }
+      const c = await this.pp.campaigns(from, to);
+      this.ppConfigured = c.configured;
+      this.ppAllCampaigns = c.campaigns;
     } finally { this.ppLoading = false; }
   }
 }

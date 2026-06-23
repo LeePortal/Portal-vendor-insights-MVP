@@ -10,7 +10,7 @@ import { API_BASE_URL } from "./app-config";
  * its data source (callers fold in a 0 placeholder for now). `configured:false` => AdButler key not set.
  */
 export interface PpAdvertiser { id: string; name: string; }
-export interface PpCampaign { id: string; name: string; impressions: number; clicks: number; }
+export interface PpCampaign { id: string; name: string; advertiserId: string; advertiserName: string; active: boolean; impressions: number; clicks: number; }
 
 @Injectable({ providedIn: "root" })
 export class PremiumPlacementSource {
@@ -36,9 +36,9 @@ export class PremiumPlacementSource {
     } catch { return { configured: false, impressions: 0, clicks: 0 }; }
   }
 
-  /** Spotlight campaigns (with period impressions/clicks) for one advertiser. */
-  async campaigns(advertiserId: string, from: string, to: string): Promise<{ configured: boolean; campaigns: PpCampaign[] }> {
-    const q = "?action=campaigns&advertiserId=" + encodeURIComponent(advertiserId) + "&from=" + from + "&to=" + to;
+  /** All Spotlight campaigns (every advertiser) with owning company, active/expired state, and period impressions/clicks. */
+  async campaigns(from: string, to: string): Promise<{ configured: boolean; campaigns: PpCampaign[] }> {
+    const q = "?action=campaigns&from=" + from + "&to=" + to;
     try {
       const r = await firstValueFrom(this.http.get<{ configured: boolean; campaigns?: PpCampaign[] }>(this.base + q, { headers: this.hdr() }));
       return { configured: !!(r && r.configured), campaigns: (r && r.campaigns) || [] };
