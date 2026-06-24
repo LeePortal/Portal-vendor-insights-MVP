@@ -8,6 +8,7 @@ import { BrandPerformanceSource } from "../core/brand-performance.source";
 import { AuthService } from "../core/auth.service";
 import { DataService } from "../core/data.service";
 import { AFilter, BrandKpis, AnalyticsService } from "../core/analytics.service";
+import { DATA_MODE } from "../core/app-config";
 import { fmtNumber } from "../core/format";
 
 type Period = "MTD" | "QTD" | "YTD" | "Custom";
@@ -49,7 +50,7 @@ type Status = "all" | "active" | "expired";
   template: `
     <div class="page-head">
       <h1>Premium Placement</h1>
-      <p>{{ advertiserName || (isAdmin ? "Admin preview — pick a brand to scope this view" : "Your Spotlight advertising performance") }}<span *ngIf="startLabel"> &middot; advertising since {{ startLabel }}</span></p>
+      <p>{{ (isAdmin ? redshiftBrand : ownBrand) || (isAdmin ? "Admin preview — pick a brand to scope this view" : "Your Spotlight advertising performance") }}</p>
     </div>
 
     <div class="filterbar" style="align-items:flex-end">
@@ -76,6 +77,8 @@ type Status = "all" | "active" | "expired";
           <button [class.on]="status === 'expired'" (click)="status = 'expired'">Expired ({{ adItems.length - activeCount }})</button>
         </div>
       </div>
+      <app-multiselect label="Parent category" allLabel="All categories" [options]="parentOptions" [selected]="parents" (selectedChange)="onParents($event)"></app-multiselect>
+      <app-multiselect label="Sub-category" allLabel="All sub-categories" [options]="subOptions" [selected]="subs" (selectedChange)="onSubs($event)"></app-multiselect>
       <app-multiselect label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="onStatuses($event)"></app-multiselect>
       <div class="filt"><label>Normalize data <span class="info-i" title="Shows only dealers active in both the selected window and the same window a year earlier — for a true year-over-year comparison.">&#9432;</span></label>
         <label class="switch"><input type="checkbox" [checked]="normalize" (change)="normalize = !normalize; load()" /><span class="track"></span></label>
@@ -108,7 +111,7 @@ type Status = "all" | "active" | "expired";
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Growth vs. category</div><div class="s">Your growth against the rest of your parent category — each indexed to 100 at the start of the period · advertising period shaded</div></div>
+      <div class="hd"><div class="t">Growth vs. category</div><div class="s">Your growth measured against your overall category</div></div>
       <div class="bd">
         <div *ngIf="chartLoading" class="muted" style="font-size:13px">Loading…</div>
         <div *ngIf="!chartLoading && !chartSeries.length" class="muted" style="font-size:13px">Not enough category history for this period to chart yet.</div>
@@ -203,10 +206,15 @@ export class PremiumOverviewComponent implements OnInit {
   clicks = 0;
   adItems: PpCreative[] = [];
   kpis: BrandKpis | null = null;
-  period: Period = "MTD";
+  period: Period = "YTD";
   status: Status = "active";
   readonly statusOptions = ["Submitted", "Accepted", "Completed"]; // capped — vendors/admins never see more than these
   statuses: string[] = [...this.statusOptions];                    // proposal-status filter (YoY widgets); default all three
+  // Category filters — locked to the company's categories (vendor); admins see all. New filter (the MI Company filter is default-only).
+  parents: string[] = [];
+  subs: string[] = [];
+  restrictParents: string[] = [];
+  restrictSubs: string[] = [];
   normalize = false;                                               // YoY "true" comparison: only dealers active in both windows
   // New dealers (last 30 days) — filter-independent, brand-scoped (vendor: token brand; admin: picked brand)
   specDealers: { count: number; newCount: number; dealers: { name: string; city: string; state: string; isNew: boolean }[] } = { count: 0, newCount: 0, dealers: [] };
@@ -241,6 +249,14 @@ export class PremiumOverviewComponent implements OnInit {
 
   openLightbox(url: string): void { this.lightbox = url; }
   onStatuses(s: string[]): void { this.statuses = s; this.load(); }  // proposal-status change → re-pull the YoY widgets
+
+  get parentOptions(): string[] { return this.an.visibleParentsFor(this.isAdmin ? this.redshiftBrand : this.ownBrand, this.restrictParents, DATA_MODE === "api"); }
+  get subOptions(): string[] {
+    const base = this.an.subsForParents(this.parents.length ? this.parents : this.parentOptions);
+    return this.restrictSubs.length ? base.filter((s) => this.restrictSubs.includes(s)) : base;
+  }
+  onParents(v: string[]): void { this.parents = v; this.subs = []; this.load(); }
+  onSubs(v: string[]): void { this.subs = v; this.load(); }
 
   get sortedDealers(): { name: string; city: string; state: string; isNew: boolean }[] {
     const k = this.dealerSort, d = this.dealerDir;
@@ -338,15 +354,17 @@ export class PremiumOverviewComponent implements OnInit {
   }
   private perfFilter(from: string, to: string): AFilter {
     return {
-      brand: this.isAdmin ? this.redshiftBrand : "admin", parents: [], subs: [], buyingGroups: [], suppliers: [], states: [],
+      brand: this.isAdmin ? this.redshiftBrand : "admin", parents: this.parents, subs: this.subs, buyingGroups: [], suppliers: [], states: [],
       statuses: this.statuses.length ? this.statuses : [...this.statusOptions], // never empty → never leaks statuses beyond the capped three
       normalize: this.normalize, agg: "monthly", horizon: this.period, from: this.period === "Custom" ? from : "", to: this.period === "Custom" ? to : "",
     };
   }
 
   async ngOnInit(): Promise<void> {
-    await this.an.ready(); // ensure the live Redshift brand list is loaded so resolveBrand() can map names
+    await this.an.ready(); // ensure live filter options (brands + categories) are loaded
     this.ownBrand = this.data.getVendor(this.session?.vendorId || "")?.name || ""; // vendor's focal brand for the chart
+    this.restrictParents = this.isAdmin ? [] : (this.session?.allowedParents || []); // lock categories to the company's
+    this.restrictSubs = this.isAdmin ? [] : (this.session?.allowedSubs || []);
     if (this.isAdmin) {
       const [r, mp] = await Promise.all([
         this.pp.advertisers().catch(() => ({ configured: false, advertisers: [] as PpAdvertiser[] })),
