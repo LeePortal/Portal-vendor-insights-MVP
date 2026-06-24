@@ -120,7 +120,7 @@ type Status = "all" | "active" | "expired";
           <span><span style="display:inline-block;width:12px;height:2px;background:#27272a;vertical-align:middle"></span> Parent category, excl. brand</span>
           <span *ngIf="chartShadeFrom >= 0"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,80,0,0.15);border:1px solid rgba(255,80,0,0.5);vertical-align:middle"></span> Advertising period</span>
         </div>
-        <app-multiline *ngIf="chartSeries.length" [series]="chartSeries" [axis]="chartAxis" [baseline]="100" [shadeFrom]="chartShadeFrom" yLabel="Indexed (start = 100)" xLabel="Month" valueFormat="num"></app-multiline>
+        <app-multiline *ngIf="chartSeries.length" [series]="chartSeries" [axis]="chartAxis" [baseline]="100" [shadeFrom]="chartShadeFrom" [shadeTo]="chartShadeTo" yLabel="Indexed (start = 100)" xLabel="Month" valueFormat="num"></app-multiline>
       </div>
     </div>
 
@@ -202,6 +202,7 @@ export class PremiumOverviewComponent implements OnInit {
   ppConfigured = true;
   advertiserName = "";
   advertisingStart = "";  // "YYYY-MM" — first month the brand served impressions (since 2023)
+  advertisingEnd = "";    // "YYYY-MM" — last month served; bounds the chart shade so a stopped advertiser isn't shaded to now
   impressions = 0;
   clicks = 0;
   adItems: PpCreative[] = [];
@@ -226,6 +227,7 @@ export class PremiumOverviewComponent implements OnInit {
   chartSeries: MultiSeries[] = [];   // indexed (start=100) brand vs category-excl-brand growth
   chartAxis: string[] = [];
   chartShadeFrom = -1;
+  chartShadeTo = -1;
   chartLoading = false;
   adItemsOpen = true;  // collapse toggle for the ad-items section
   cFrom = "";
@@ -300,9 +302,14 @@ export class PremiumOverviewComponent implements OnInit {
           { label: "Parent category, excl. brand", values: idx(catEx), color: "#27272a" },
         ];
         const keys = rb.keys || [];
-        this.chartShadeFrom = this.advertisingStart ? keys.findIndex((k) => k >= this.advertisingStart) : -1;
-      } else { this.chartSeries = []; this.chartAxis = []; this.chartShadeFrom = -1; }
-    } catch { this.chartSeries = []; this.chartAxis = []; this.chartShadeFrom = -1; }
+        let from = this.advertisingStart ? keys.findIndex((k) => k >= this.advertisingStart) : -1;
+        let toIdx = -1;
+        if (this.advertisingEnd) { for (let i = keys.length - 1; i >= 0; i--) if (keys[i] <= this.advertisingEnd) { toIdx = i; break; } }
+        else if (this.advertisingStart) { toIdx = keys.length - 1; }
+        if (from < 0 || toIdx < 0 || toIdx < from) { from = -1; toIdx = -1; } // served span doesn't overlap this window → no shade
+        this.chartShadeFrom = from; this.chartShadeTo = toIdx;
+      } else { this.chartSeries = []; this.chartAxis = []; this.chartShadeFrom = -1; this.chartShadeTo = -1; }
+    } catch { this.chartSeries = []; this.chartAxis = []; this.chartShadeFrom = -1; this.chartShadeTo = -1; }
     finally { this.chartLoading = false; }
   }
 
@@ -388,12 +395,13 @@ export class PremiumOverviewComponent implements OnInit {
     this.loading = true;
     try {
       const [ov, perf] = await Promise.all([
-        this.pp.overview(from, to, this.isAdmin ? this.brandId : "").catch(() => ({ configured: false, advertiserName: "", advertisingStart: "", impressions: 0, clicks: 0, adItems: [] as PpCreative[] })),
+        this.pp.overview(from, to, this.isAdmin ? this.brandId : "").catch(() => ({ configured: false, advertiserName: "", advertisingStart: "", advertisingEnd: "", impressions: 0, clicks: 0, adItems: [] as PpCreative[] })),
         this.brandPerf.get(this.perfFilter(from, to)).catch(() => null),
       ]);
       this.ppConfigured = ov.configured;
       this.advertiserName = ov.advertiserName;
       this.advertisingStart = ov.advertisingStart;
+      this.advertisingEnd = ov.advertisingEnd;
       this.impressions = ov.impressions;
       this.clicks = ov.clicks;
       this.adItems = ov.adItems;

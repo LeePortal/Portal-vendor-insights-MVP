@@ -218,8 +218,9 @@ export interface MultiSeries { label: string; values: number[]; color: string; }
           <div #plot class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
-              <rect *ngIf="shadeFrom >= 0" [attr.x]="shadeX" y="0" [attr.width]="W - shadeX" [attr.height]="H" fill="rgba(255,80,0,0.07)"></rect>
+              <rect *ngIf="shadeFrom >= 0" [attr.x]="shadeX" y="0" [attr.width]="shadeX2 - shadeX" [attr.height]="H" fill="rgba(255,80,0,0.07)"></rect>
               <line *ngIf="shadeFrom >= 0" [attr.x1]="shadeX" y1="0" [attr.x2]="shadeX" [attr.y2]="H" stroke="#ff5000" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
+              <line *ngIf="shadeFrom >= 0 && shadeTo >= 0" [attr.x1]="shadeX2" y1="0" [attr.x2]="shadeX2" [attr.y2]="H" stroke="#ff5000" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
               <line *ngIf="baseline != null" x1="0" [attr.y1]="baselineY" [attr.x2]="W" [attr.y2]="baselineY" stroke="#aeb0b5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
               <polyline *ngFor="let s of series" [attr.points]="line(s)" fill="none" [attr.stroke]="s.color" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
               <g *ngFor="let s of series"><circle *ngFor="let p of pts(s)" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="series.length && series[0].values.length <= 3 ? 5 : 3" [attr.fill]="s.color"></circle></g>
@@ -245,8 +246,10 @@ export class MultiLineChartComponent implements AfterViewInit {
   @Input() valueFormat: VFmt = "pct";
   @Input() baseline: number | null = null; // dashed reference line (e.g. 100 for an indexed chart)
   @Input() shadeFrom = -1;                  // index from which to shade the advertising period; -1 = none
+  @Input() shadeTo = -1;                    // index the shade runs TO (inclusive); -1 = to the chart's end
   W = 640; H = 240; pad = 16; ph = 250; hi = -1;
   get shadeX(): number { const n = this.axis.length; return n <= 1 ? 0 : (this.shadeFrom / (n - 1)) * this.W; }
+  get shadeX2(): number { const n = this.axis.length; const t = this.shadeTo >= 0 ? this.shadeTo : n - 1; return n <= 1 ? this.W : (t / (n - 1)) * this.W; }
   get baselineY(): number { return this.H - ((this.baseline || 0) / this.max) * (this.H - this.pad); }
   @ViewChild("plot") plot?: ElementRef<HTMLElement>;
   ngAfterViewInit(): void { setTimeout(() => this.measure()); }
