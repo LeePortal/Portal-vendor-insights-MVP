@@ -231,19 +231,34 @@ module.exports = async (req, res) => {
       const now = new Date();
       const cmFrom = iso(now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-01");
       const cmTo = iso(now.toISOString().slice(0, 10), true);
-      const norm = (s) => String(s || "").trim().toLowerCase();
-      const names = new Set([norm(claims.brand), ...((claims.allowedBrands) || []).map(norm)].filter(Boolean));
       const advList = await abPages("/advertisers");
-      const adv = advList.find((a) => names.has(norm(a.name)));
-      if (!adv) return res.status(200).json({ configured: true, advertiserName: "", impressions: 0, clicks: 0, adItems: [] });
-      const aid = String(adv.id);
+      const advIds = new Set();
+      let advName = "";
+      if (claims.role === "admin") {
+        // Admin previews ONE advertiser by id (the /premium Brand picker). No id selected => nothing to show.
+        const wantId = String(q.advertiserId || "");
+        if (!wantId) return res.status(200).json({ configured: true, advertiserName: "", impressions: 0, clicks: 0, adItems: [] });
+        const adv = advList.find((a) => String(a.id) === wantId);
+        if (!adv) return res.status(200).json({ configured: true, advertiserName: "", impressions: 0, clicks: 0, adItems: [] });
+        advIds.add(String(adv.id)); advName = adv.name || "";
+      } else {
+        // Vendor: ALL advertisers whose name matches one of the vendor's brands (claims.brand + allowedBrands) —
+        // a company can own several brands, so the view picks up every one the admin set on the account.
+        // Matched by name from the TOKEN, never a client param.
+        const norm = (s) => String(s || "").trim().toLowerCase();
+        const names = new Set([norm(claims.brand), ...((claims.allowedBrands) || []).map(norm)].filter(Boolean));
+        const matched = advList.filter((a) => names.has(norm(a.name)));
+        if (!matched.length) return res.status(200).json({ configured: true, advertiserName: "", impressions: 0, clicks: 0, adItems: [] });
+        for (const a of matched) advIds.add(String(a.id));
+        advName = matched.map((a) => a.name).filter(Boolean).join(", ");
+      }
       const [allC, adItemsAll, repItem, repItemNow] = await Promise.all([
         abPages("/campaigns"),
         abPages("/ad-items").catch(() => []),
         ab("/reports", { type: "ad-item", period: "month", from, to }).catch(() => ({})),
         ab("/reports", { type: "ad-item", period: "month", from: cmFrom, to: cmTo }).catch(() => ({})),
       ]);
-      const myCampaignIds = new Set(allC.filter((c) => advId(c) === aid).map((c) => String(c.id)));
+      const myCampaignIds = new Set(allC.filter((c) => advIds.has(advId(c))).map((c) => String(c.id)));
       const met = {};
       for (const row of (repItem.data || [])) { const s = row.summary || {}; met[String(row.id)] = { impressions: num(s.impressions), clicks: num(s.clicks) }; }
       const curImpr = {};
@@ -260,7 +275,7 @@ module.exports = async (req, res) => {
         .sort((a, b) => String(b.createdDate).localeCompare(String(a.createdDate)));
       const impressions = adItems.reduce((s, c) => s + c.impressions, 0);
       const clicks = adItems.reduce((s, c) => s + c.clicks, 0);
-      return res.status(200).json({ configured: true, advertiserName: adv.name || "", impressions, clicks, adItems });
+      return res.status(200).json({ configured: true, advertiserName: advName, impressions, clicks, adItems });
     }
 
     return res.status(400).json({ error: "Unknown action" });
