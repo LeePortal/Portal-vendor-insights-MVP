@@ -2,7 +2,7 @@ import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { RouterLink } from "@angular/router";
 import { MultiSelectComponent } from "../components/multiselect.component";
-import { DualLineChartComponent } from "../components/charts.component";
+import { MultiLineChartComponent, MultiSeries } from "../components/charts.component";
 import { PremiumPlacementSource, PpCreative, PpAdvertiser } from "../core/premium-placement.source";
 import { BrandPerformanceSource } from "../core/brand-performance.source";
 import { AuthService } from "../core/auth.service";
@@ -26,7 +26,7 @@ type Status = "all" | "active" | "expired";
 @Component({
   selector: "app-premium-overview",
   standalone: true,
-  imports: [CommonModule, RouterLink, MultiSelectComponent, DualLineChartComponent],
+  imports: [CommonModule, RouterLink, MultiSelectComponent, MultiLineChartComponent],
   styles: [`
     .kgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
     .aigrid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; }
@@ -108,11 +108,16 @@ type Status = "all" | "active" | "expired";
     </div>
 
     <div class="pcard" style="margin-bottom:16px">
-      <div class="hd"><div class="t">Revenue vs. category</div><div class="s">Your revenue against the rest of your parent category (brand removed) · advertising period shaded</div></div>
+      <div class="hd"><div class="t">Growth vs. category</div><div class="s">Your growth against the rest of your parent category — each indexed to 100 at the start of the period · advertising period shaded</div></div>
       <div class="bd">
         <div *ngIf="chartLoading" class="muted" style="font-size:13px">Loading…</div>
-        <div *ngIf="!chartLoading && !chartPoints.length" class="muted" style="font-size:13px">Not enough category history to chart this brand yet.</div>
-        <app-dual *ngIf="chartPoints.length" [points]="chartPoints" [shadeFrom]="chartShadeFrom" [brandLabel]="(isAdmin ? redshiftBrand : ownBrand) || 'Brand'" categoryLabel="Parent category, excl. brand" yLabel="Revenue" xLabel="Month" valueFormat="money"></app-dual>
+        <div *ngIf="!chartLoading && !chartSeries.length" class="muted" style="font-size:13px">Not enough category history for this period to chart yet.</div>
+        <div *ngIf="chartSeries.length" style="display:flex;gap:16px;font-size:11px;color:var(--text-muted);margin-bottom:8px">
+          <span><span style="display:inline-block;width:12px;height:2px;background:#ff5000;vertical-align:middle"></span> {{ (isAdmin ? redshiftBrand : ownBrand) || 'Brand' }}</span>
+          <span><span style="display:inline-block;width:12px;height:2px;background:#27272a;vertical-align:middle"></span> Parent category, excl. brand</span>
+          <span *ngIf="chartShadeFrom >= 0"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,80,0,0.15);border:1px solid rgba(255,80,0,0.5);vertical-align:middle"></span> Advertising period</span>
+        </div>
+        <app-multiline *ngIf="chartSeries.length" [series]="chartSeries" [axis]="chartAxis" [baseline]="100" [shadeFrom]="chartShadeFrom" yLabel="Indexed (start = 100)" xLabel="Month" valueFormat="num"></app-multiline>
       </div>
     </div>
 
@@ -210,7 +215,8 @@ export class PremiumOverviewComponent implements OnInit {
   dealerDir = -1;
   // Revenue-vs-category lift chart (brand vs the rest of its parent category, advertising period shaded)
   ownBrand = "";  // vendor's own focal brand (admins use the picked brand instead)
-  chartPoints: { label: string; category: number; brand: number }[] = [];
+  chartSeries: MultiSeries[] = [];   // indexed (start=100) brand vs category-excl-brand growth
+  chartAxis: string[] = [];
   chartShadeFrom = -1;
   chartLoading = false;
   adItemsOpen = true;  // collapse toggle for the ad-items section
@@ -256,24 +262,31 @@ export class PremiumOverviewComponent implements OnInit {
     const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1] || "";
     return mon ? mon + " " + m[1] : "";
   }
-  /** Revenue-vs-category chart over a monthly window spanning the advertising period (plus ~5 months before for
-   *  context). Brand line = focal brand's revenue; category line = the rest of its parent category (total − brand). */
+  /** Growth chart over the SELECTED PERIOD window (monthly): brand and the rest of its parent category, each
+   *  indexed to 100 at the start of the window — so the slopes compare growth RATES, not raw dollars. The
+   *  advertising period is shaded. */
   async loadChart(): Promise<void> {
     const focal = this.isAdmin ? this.redshiftBrand : this.ownBrand;
-    if (!this.hasScope || !focal) { this.chartPoints = []; this.chartShadeFrom = -1; return; }
-    const now = new Date(), ymd = (d: Date) => d.toISOString().slice(0, 10);
-    const m = /^(\d{4})-(\d{2})$/.exec(this.advertisingStart);
-    const from = m ? ymd(new Date(Date.UTC(+m[1], +m[2] - 1 - 5, 1))) : ymd(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1)));
-    const f: AFilter = { brand: focal, parents: [], subs: [], buyingGroups: [], suppliers: [], states: [], statuses: this.statuses.length ? this.statuses : [...this.statusOptions], normalize: false, agg: "monthly", horizon: "Custom", from, to: ymd(now) };
+    if (!this.hasScope || !focal) { this.chartSeries = []; this.chartAxis = []; this.chartShadeFrom = -1; return; }
+    const { from, to } = this.range();
+    if (!from || !to) { this.chartSeries = []; return; }
+    const f: AFilter = { ...this.perfFilter(from, to), brand: focal }; // ties window to the top Period filter; focal brand
     this.chartLoading = true;
     try {
       const rb = (await this.brandPerf.get(f)).revByPeriod;
-      const cat = (rb && rb.category) || [], vals = (rb && rb.values) || [];
-      if (rb && rb.category && rb.category.length) {
-        this.chartPoints = rb.labels.map((lab, i) => ({ label: lab, brand: vals[i] || 0, category: Math.max(0, (cat[i] || 0) - (vals[i] || 0)) }));
-        this.chartShadeFrom = (this.advertisingStart && rb.keys) ? rb.keys.indexOf(this.advertisingStart) : -1;
-      } else { this.chartPoints = []; this.chartShadeFrom = -1; }
-    } catch { this.chartPoints = []; this.chartShadeFrom = -1; }
+      const vals = (rb && rb.values) || [], cat = (rb && rb.category) || [];
+      if (rb && rb.category && rb.category.length > 1) {
+        const idx = (arr: number[]) => { const base = arr[0] || arr.find((v) => v > 0) || 1; return arr.map((v) => Math.round((v / base) * 1000) / 10); };
+        const catEx = cat.map((c, i) => Math.max(0, c - (vals[i] || 0)));
+        this.chartAxis = rb.labels;
+        this.chartSeries = [
+          { label: focal, values: idx(vals), color: "#ff5000" },
+          { label: "Parent category, excl. brand", values: idx(catEx), color: "#27272a" },
+        ];
+        const keys = rb.keys || [];
+        this.chartShadeFrom = this.advertisingStart ? keys.findIndex((k) => k >= this.advertisingStart) : -1;
+      } else { this.chartSeries = []; this.chartAxis = []; this.chartShadeFrom = -1; }
+    } catch { this.chartSeries = []; this.chartAxis = []; this.chartShadeFrom = -1; }
     finally { this.chartLoading = false; }
   }
 
