@@ -58,6 +58,7 @@ module.exports = async (req, res) => {
     if (password !== DEMO_PASSWORD) return res.status(401).json({ error: "Invalid email or password." });
 
     let claims = null;
+    let sub = { start: "", end: "", suspended: false }; // company subscription window (authoritative; for the shell lock)
 
     if (ADMINS.includes(e)) {
       claims = { email: e, role: "admin", brand: "", allowedParents: [], allowedSubs: [], allowedStates: [], allowedBrands: [], perms: {} };
@@ -69,6 +70,7 @@ module.exports = async (req, res) => {
           if (found) {
             const eff = db.effective(found.user, found.company);
             claims = { email: e, role: "vendor", brand: eff.brand, allowedParents: eff.allowedParents, allowedSubs: eff.allowedSubs, allowedStates: eff.allowedStates, allowedBrands: eff.allowedBrands, perms: eff.perms };
+            sub = { start: (found.company && found.company.start) || "", end: (found.company && found.company.end) || "", suspended: !!eff.suspended };
             await db.recordLogin(e).catch(() => {}); // REAL usage data; the client ActivityService is only a synthetic fallback
           }
         } catch (err) {
@@ -90,7 +92,7 @@ module.exports = async (req, res) => {
     if (claims.role === "vendor" && db.isConfigured()) {
       try { logo = await db.getLogo(LOGO_KEY_BY_BRAND[claims.brand] || claims.brand); } catch (e) { logo = ""; }
     }
-    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates, allowedBrands: claims.allowedBrands, perms: claims.perms, logo });
+    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates, allowedBrands: claims.allowedBrands, perms: claims.perms, logo, subStart: sub.start, subEnd: sub.end, suspended: sub.suspended });
   } catch (e) {
     res.status(500).json({ error: String((e && e.message) || e) });
   }

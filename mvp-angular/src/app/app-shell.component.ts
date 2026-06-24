@@ -84,21 +84,36 @@ export class AppShellComponent {
     return (parts.slice(0, 2).map((w) => w[0]).join("") || "U").toUpperCase();
   }
   get brandLogo(): string | undefined { return this.isAdmin ? undefined : (this.session.logo || this.va.getLogo(this.session.vendorId || "") || undefined); }
-  get locked(): boolean { return !this.isAdmin && this.va.statusOf(this.session.email) !== "active"; }
+  /** Subscription status — AUTHORITATIVE from the session window (the live DB, via /api/session), falling back
+   *  to the client store only in synthetic mode (no session window). Replaces the old client-only check, which
+   *  read a stale local cache as "expired" for vendors. */
+  get subStatus(): "active" | "expired" | "scheduled" | "suspended" | "none" {
+    if (this.isAdmin) return "active";
+    const s = this.session;
+    if (s.suspended) return "suspended";
+    if (s.subStart || s.subEnd) {
+      const now = Date.now();
+      if (s.subStart && now < new Date(s.subStart + "T00:00:00").getTime()) return "scheduled";
+      if (s.subEnd && now > new Date(s.subEnd + "T23:59:59").getTime()) return "expired";
+      return "active";
+    }
+    return this.va.statusOf(s.email); // synthetic / no window in session
+  }
+  get locked(): boolean { return !this.isAdmin && this.subStatus !== "active"; }
   get lockMessage(): string {
-    const st = this.va.statusOf(this.session.email);
+    const st = this.subStatus;
     return st === "scheduled" ? "Your subscription hasn't started yet" : st === "suspended" ? "Your account has been suspended" : "Your subscription has expired";
   }
-  get subExpired(): boolean { return !this.isAdmin && this.va.statusOf(this.session.email) !== "active"; }
+  get subExpired(): boolean { return !this.isAdmin && this.subStatus !== "active"; }
   get subText(): string {
     if (this.isAdmin) return "";
-    const status = this.va.statusOf(this.session.email);
+    const status = this.subStatus;
     if (status === "expired") return "Subscription expired";
     if (status === "suspended") return "Account suspended";
     if (status === "scheduled") return "Subscription not started";
-    const s = this.va.subFor(this.session.email);
-    if (!s) return "";
-    const days = Math.round((new Date(s.end + "T23:59:59").getTime() - Date.now()) / 86400000);
+    const end = this.session.subEnd || (this.va.subFor(this.session.email) || { end: "" }).end;
+    if (!end) return "";
+    const days = Math.round((new Date(end + "T23:59:59").getTime() - Date.now()) / 86400000);
     return days + " days left";
   }
   goProfile(): void { this.router.navigate(["/profile"]); }
