@@ -14,6 +14,7 @@
  * user's override if set, else the company default (see effective()).
  */
 const { buildSeed } = require("./seed-data");
+const crypto = require("crypto");
 
 const RAW_CONN = process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL || "";
 // Supabase ships `sslmode=require`, which makes node-postgres verify the server cert and fail with
@@ -37,6 +38,8 @@ function pool() {
 
 const J = (v) => JSON.stringify(v || []);
 const A = (v) => (Array.isArray(v) ? v : []);
+const rid = (n = 24) => crypto.randomBytes(n).toString("base64url");          // random id / secret
+const sha = (s) => crypto.createHash("sha256").update(String(s)).digest("base64url"); // hash secrets at rest
 
 let _ready = null;
 /** Create tables on first use; seed from buildSeed() if the users table is empty. Runs once per cold start. */
@@ -68,6 +71,15 @@ function ensureReady() {
       tool TEXT, params JSONB, rows INTEGER, latency_ms INTEGER, status INTEGER)`);
     await p.query(`CREATE INDEX IF NOT EXISTS request_log_ts_idx ON request_log (ts)`);
     await p.query(`CREATE INDEX IF NOT EXISTS request_log_email_idx ON request_log (email)`);
+    // OAuth (demo-grade) — clients (dynamic registration), single-use auth codes, and refresh tokens.
+    // Access tokens are stateless signed JWTs (lib/auth); only refresh tokens are stored (hashed) so they're revocable.
+    await p.query(`CREATE TABLE IF NOT EXISTS oauth_clients (
+      client_id TEXT PRIMARY KEY, name TEXT, redirect_uris JSONB NOT NULL DEFAULT '[]', created_at BIGINT)`);
+    await p.query(`CREATE TABLE IF NOT EXISTS oauth_codes (
+      code TEXT PRIMARY KEY, client_id TEXT, redirect_uri TEXT, code_challenge TEXT, email TEXT, scope TEXT, exp BIGINT)`);
+    await p.query(`CREATE TABLE IF NOT EXISTS oauth_tokens (
+      token_id TEXT PRIMARY KEY, refresh_hash TEXT, email TEXT, client_id TEXT, client_name TEXT, scope TEXT,
+      created_at BIGINT, last_at BIGINT, revoked BOOLEAN NOT NULL DEFAULT false)`);
     const { rows } = await p.query("SELECT COUNT(*)::int AS n FROM vendor_users");
     if (!rows[0].n) await replaceAll(buildSeed());
     await ensureDemo(p).catch((e) => console.error("ensureDemo:", (e && e.message) || e)); // idempotent demo-account top-up
@@ -332,4 +344,74 @@ async function recentRequests({ source, tokenId, email, limit } = {}) {
   return r.rows.map((x) => ({ ts: Number(x.ts), email: x.email || "", brand: x.brand || "", source: x.source, assistant: x.assistant || "", tokenId: x.token_id || "", tool: x.tool || "", params: x.params || null, rows: x.rows == null ? null : Number(x.rows), latencyMs: x.latency_ms == null ? null : Number(x.latency_ms), status: x.status == null ? null : Number(x.status) }));
 }
 
-module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, createSignupUser, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, logRequest, usageByUser, mcpStats, recentRequests, isConfigured: () => !!CONN };
+/* ---------- OAuth (demo-grade) store ---------- */
+
+/** Dynamic client registration (RFC 7591, minimal): store redirect URIs, return a generated client_id. */
+async function registerOauthClient({ name, redirectUris }) {
+  await ensureReady();
+  const clientId = "mcp_" + rid(12);
+  await pool().query(`INSERT INTO oauth_clients (client_id, name, redirect_uris, created_at) VALUES ($1,$2,$3,$4)`,
+    [clientId, name || "MCP client", J(A(redirectUris).map(String)), Date.now()]);
+  return { clientId, name: name || "MCP client", redirectUris: A(redirectUris) };
+}
+async function getOauthClient(clientId) {
+  await ensureReady();
+  const r = await pool().query(`SELECT client_id, name, redirect_uris FROM oauth_clients WHERE client_id=$1`, [String(clientId || "")]);
+  return r.rows.length ? { clientId: r.rows[0].client_id, name: r.rows[0].name || "", redirectUris: A(r.rows[0].redirect_uris) } : null;
+}
+async function saveAuthCode(c) {
+  await ensureReady();
+  await pool().query(`INSERT INTO oauth_codes (code, client_id, redirect_uri, code_challenge, email, scope, exp) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [c.code, c.clientId, c.redirectUri, c.codeChallenge, String(c.email).toLowerCase(), c.scope || "", Number(c.exp)]);
+}
+/** Single-use: returns the code's record and deletes it atomically. */
+async function takeAuthCode(code) {
+  await ensureReady();
+  const r = await pool().query(
+    `DELETE FROM oauth_codes WHERE code=$1 RETURNING client_id, redirect_uri, code_challenge, email, scope, exp`, [String(code || "")]);
+  if (!r.rows.length) return null;
+  const x = r.rows[0];
+  return { clientId: x.client_id, redirectUri: x.redirect_uri, codeChallenge: x.code_challenge, email: x.email, scope: x.scope || "", exp: Number(x.exp) };
+}
+/** Issue a refresh token. Returns { tokenId, refresh } — refresh = "<tokenId>.<secret>"; only the hash is stored. */
+async function createRefreshToken({ email, clientId, clientName, scope }) {
+  await ensureReady();
+  const tokenId = "tok_" + rid(9);
+  const secret = rid(32);
+  await pool().query(
+    `INSERT INTO oauth_tokens (token_id, refresh_hash, email, client_id, client_name, scope, created_at, last_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`,
+    [tokenId, sha(secret), String(email).toLowerCase(), clientId || "", clientName || "MCP client", scope || "", Date.now()]);
+  return { tokenId, refresh: tokenId + "." + secret };
+}
+/** Validate a refresh token string; returns its record (and bumps last_at) or null if unknown/revoked/bad. */
+async function findRefreshToken(refreshToken) {
+  await ensureReady();
+  const [tokenId, secret] = String(refreshToken || "").split(".");
+  if (!tokenId || !secret) return null;
+  const r = await pool().query(`SELECT token_id, refresh_hash, email, client_id, client_name, scope, revoked FROM oauth_tokens WHERE token_id=$1`, [tokenId]);
+  if (!r.rows.length || r.rows[0].revoked || sha(secret) !== r.rows[0].refresh_hash) return null;
+  await pool().query(`UPDATE oauth_tokens SET last_at=$2 WHERE token_id=$1`, [tokenId, Date.now()]);
+  const x = r.rows[0];
+  return { tokenId: x.token_id, email: x.email, clientId: x.client_id, clientName: x.client_name || "", scope: x.scope || "" };
+}
+async function revokeRefreshToken(refreshOrTokenId) {
+  await ensureReady();
+  const tokenId = String(refreshOrTokenId || "").split(".")[0];
+  if (!tokenId) return;
+  await pool().query(`UPDATE oauth_tokens SET revoked=true WHERE token_id=$1`, [tokenId]);
+}
+/** A user's connected assistants (active refresh tokens) — for the Profile "AI assistant access" list. */
+async function listConnectedApps(email) {
+  await ensureReady();
+  const r = await pool().query(
+    `SELECT token_id, client_name, created_at, last_at FROM oauth_tokens WHERE email=$1 AND revoked=false ORDER BY last_at DESC`,
+    [String(email || "").toLowerCase()]);
+  return r.rows.map((x) => ({ tokenId: x.token_id, name: x.client_name || "MCP client", createdAt: Number(x.created_at) || 0, lastAt: Number(x.last_at) || 0 }));
+}
+/** Revoke one of a user's tokens by id (Profile revoke); scoped to the owner so users can't revoke others'. */
+async function revokeTokenForUser(email, tokenId) {
+  await ensureReady();
+  await pool().query(`UPDATE oauth_tokens SET revoked=true WHERE token_id=$1 AND email=$2`, [String(tokenId || ""), String(email || "").toLowerCase()]);
+}
+
+module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, createSignupUser, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, logRequest, usageByUser, mcpStats, recentRequests, registerOauthClient, getOauthClient, saveAuthCode, takeAuthCode, createRefreshToken, findRefreshToken, revokeRefreshToken, listConnectedApps, revokeTokenForUser, isConfigured: () => !!CONN };
