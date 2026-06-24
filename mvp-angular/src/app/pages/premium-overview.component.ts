@@ -1,6 +1,7 @@
 import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { RouterLink } from "@angular/router";
+import { MatIconModule } from "@angular/material/icon";
 import { MultiSelectComponent } from "../components/multiselect.component";
 import { MultiLineChartComponent, MultiSeries } from "../components/charts.component";
 import { PremiumPlacementSource, PpCreative, PpAdvertiser } from "../core/premium-placement.source";
@@ -27,7 +28,7 @@ type Status = "all" | "active" | "expired";
 @Component({
   selector: "app-premium-overview",
   standalone: true,
-  imports: [CommonModule, RouterLink, MultiSelectComponent, MultiLineChartComponent],
+  imports: [CommonModule, RouterLink, MultiSelectComponent, MultiLineChartComponent, MatIconModule],
   styles: [`
     .kgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
     .aigrid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; }
@@ -53,6 +54,14 @@ type Status = "all" | "active" | "expired";
       <p>{{ (isAdmin ? redshiftBrand : ownBrand) || (isAdmin ? "Admin preview — pick a brand to scope this view" : "Your Spotlight advertising performance") }}</p>
     </div>
 
+    <div *ngIf="ppLocked" class="pcard" style="max-width:540px;margin:48px auto;text-align:center;padding:34px 28px">
+      <mat-icon style="font-size:40px;width:40px;height:40px;color:var(--text-muted)">lock</mat-icon>
+      <h3 style="margin:14px 0 6px">No active Premium Placement campaign</h3>
+      <p class="muted" style="font-size:13px;margin:0 auto 20px;max-width:380px">You don't have an active Spotlight campaign right now. Contact your Portal account manager to start advertising on Portal.</p>
+      <a routerLink="/" class="pbtn">&larr; Back to Home</a>
+    </div>
+
+    <ng-container *ngIf="!ppLocked">
     <div class="filterbar" style="align-items:flex-end">
       <div class="filt" *ngIf="isAdmin"><label>Brand</label>
         <select class="minput" (change)="onBrand($any($event.target).value)">
@@ -183,6 +192,8 @@ type Status = "all" | "active" | "expired";
       </div>
     </div>
 
+    </ng-container>
+
     <div *ngIf="lightbox" class="lbx" (click)="lightbox = null" title="Click to close">
       <img [src]="lightbox" alt="Ad creative, full size" />
     </div>
@@ -244,6 +255,8 @@ export class PremiumOverviewComponent implements OnInit {
 
   /** Whether the view is scoped to a single brand yet (always true for vendors; true for admins once they pick). */
   get hasScope(): boolean { return !this.isAdmin || !!this.brandId; }
+  /** PP "subscription" gate: a vendor with no active campaign (no ad-item served this month) is locked out. */
+  get ppLocked(): boolean { return !this.isAdmin && !this.loading && !this.adItems.some((c) => c.active); }
   get activeCount(): number { return this.adItems.filter((c) => c.active).length; }
   get shown(): PpCreative[] {
     return this.adItems.filter((c) => (this.status === "all" ? true : this.status === "active" ? c.active : !c.active));

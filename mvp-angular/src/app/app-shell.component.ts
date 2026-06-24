@@ -102,7 +102,7 @@ export class AppShellComponent {
   }
   /** Only the data dashboards (Market Insights + Premium Placement) gate on subscription; Home and Profile are
    *  always reachable so a vendor can land and navigate regardless of subscription state. */
-  private get onGatedRoute(): boolean { const u = this.router.url.split("?")[0]; return u.startsWith("/dashboards") || u.startsWith("/premium"); }
+  private get onGatedRoute(): boolean { const u = this.router.url.split("?")[0]; return u.startsWith("/dashboards"); } // MI window gates /dashboards; Premium Placement gates itself on an active campaign
   get locked(): boolean { return !this.isAdmin && this.subStatus !== "active" && this.onGatedRoute; }
   get lockMessage(): string {
     const st = this.subStatus;
