@@ -1,5 +1,18 @@
 # Live Redshift Data — Brand Performance Overview
 
+> **Status (what actually shipped vs. this plan).** This was the *pre-build integration plan*; the live
+> implementation diverged on several specifics — trust `mvp-angular/api/brand-performance.js` and
+> `07_Production_Handoff…` over the details here:
+> - **Connection:** a **direct `pg`** connection (`REDSHIFT_HOST/PORT/DATABASE/USER/PASSWORD`), **not** the
+>   AWS Redshift Data API + Secrets Manager + IAM keys described below.
+> - **Table:** `public.portal_mi_data_for_redshift` (not `analytics.proposal_parts`); date column is
+>   `submitted` (not `submitted_date`).
+> - **SQL dialect:** Redshift `CASE WHEN` aggregates, **not** Postgres `FILTER (WHERE …)`.
+> - **Auth/tenant:** done via the signed token from `/api/session` (already built), not a stub.
+>
+> The architecture *intent* (server-side tenant scoping, aggregates-only, a per-tenant cache) is accurate
+> and was implemented; treat the env vars and SQL samples below as illustrative, not literal.
+
 Goal: power the Brand Performance Overview from Redshift directly (Redshift is refreshed nightly upstream, so data is "semi-live"), with every query authenticated and scoped per tenant. No credentials or other tenants' rows ever reach the browser.
 
 ## Architecture

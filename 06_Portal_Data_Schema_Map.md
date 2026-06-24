@@ -1,7 +1,16 @@
 # Portal.io Sales Data Schema Map
 ## Market Intelligence Reference Document
 
-Authoritative spec for all SQL/metric work against the Portal.io dataset. Source of truth — load before generating any query or metric. (Provided by Lee, from the `portalio/analytics` market_intelligence docs.)
+> **Scope note — read this first.** The **column definitions, table-level filters, the deleted-item swap
+> logic, and the confidentiality rules** below are accurate and remain the reference. The **rigid metric
+> rules**, however — closed-won-only reporting, the fixed ~35-category in-scope list, and "never mix
+> closed-won with pipeline" — describe an **earlier, more rigid product**. The live dashboards are
+> deliberately **open and filter-driven** (status, categories, date range, and normalization are all
+> user-controlled), so they are *expected* to differ. Treat the metric prescriptions here as historical
+> reference, not the standard; do **not** force-fit the dashboards to them or re-introduce hard-coded
+> normalization / a capped category list. See `07_Production_Handoff_(Seams_and_Build_Spec).md` §5.
+
+Schema reference for SQL/metric work against the Portal.io dataset. Column/table facts are authoritative; the metric rules are historical (see the scope note above). (Provided by Lee, from the `portalio/analytics` market_intelligence docs.)
 
 ## Table
 **Redshift table:** `public.portal_mi_data_for_redshift` — flat export, one row per proposal line item (`proposalitemid`). Multiple rows share a `proposalid`.

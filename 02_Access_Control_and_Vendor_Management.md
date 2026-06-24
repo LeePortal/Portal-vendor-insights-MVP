@@ -96,16 +96,19 @@ vendor-facing output looks branded. (MVP stores the image as a data URL; product
 stores it in object storage and references a URL.)
 
 ### 3.3 Subscriptions — start / end + expiry behavior
-Each brand user has a subscription with a **start** and **end** date:
+Subscriptions live at the **company** level — a start/end window inherited by that company's users:
 
 | Status | Condition | Effect |
 |---|---|---|
 | **Scheduled** | today < start | Access not yet active. |
 | **Active** | start ≤ today ≤ end | Full access. |
-| **Expired** | today > end | **Access auto-terminates.** The user can still sign in, but the entire app is **greyed out** and shows **"Your subscription has expired"** with a prompt to contact their Portal account manager. |
+| **Expired** | today > end | The user can still sign in and use Home, Profile, and the dashboards **menu**, but **opening a Market Insights dashboard shows a lock** ("A subscription is required") — the check runs *before* any data loads, so no data flashes. Premium Placement gates **separately**, on having a live ad campaign. |
 
-Expiry is automatic (date-driven) — no manual deactivation needed. The greyed-out
-state applies only to vendor users; Portal staff are never gated by it.
+Expiry is automatic (date-driven). Gating applies only to vendor users; Portal staff are never gated.
+
+**Free accounts (added since this spec).** Self-serve signups carry no subscription: they get a teaser
+Home, hit the same lock when they open a dashboard, and are blocked from the Market Insights data API
+server-side. Admins can convert a free account to a subscriber from the Vendor Management UI.
 
 ### 3.4 Data model (prototype)
 

@@ -32,6 +32,8 @@ Every backend call lives in **one service** (`src/app/core/brand-performance.sou
 | `/api/proposal-export` | GET (filter params) | CSV text (+ `X-Export-Rows`, `X-Export-Truncated`) | `exportProposals()` |
 | `/api/report-pdf` | POST `{ html, header, footer }` | PDF (blob) | `renderPdf()` |
 
+> **The API surface has since grown** beyond these three (which remain the Market Insights core). Also live, same pattern (token-verified, scope enforced server-side): `/api/session` (the token issuer), `/api/admin-vendors` (account-store CRUD), `/api/platform-stats` (network Home KPIs + revenue trend), `/api/signup` (self-serve free accounts), and the **Premium Placement** set — `/api/adbutler` (AdButler proxy), `/api/pp-mapping` (advertiser→brand map), `/api/new-dealers`. Premium Placement reads AdButler live (`ADBUTLER_API_KEY`, server-side); see `09_AdButler_API_Reference.md`.
+
 **To point at production:** change `API_BASE_URL` (and flip `DATA_MODE` to `'api'`). That's the whole front-end change. Production re-implements the three endpoints on its own stack; as long as they honor the contracts below, the UI is untouched. (Optional nicety: move `API_BASE_URL`/`DATA_MODE` into Angular `environment.ts` files for per-env builds.)
 
 ### Contracts to honor
@@ -47,7 +49,7 @@ All client persistence is isolated inside core services, each behind a `load()`/
 
 | Service | Key | Holds | Prod replacement |
 |---|---|---|---|
-| `vendor-admin.service.ts` | `pvi_vendor_admin_v5` | Companies, users, **subscriptions**, logos | The real accounts/subscriptions store (API) |
+| `vendor-admin.service.ts` | `pvi_vendor_admin_v7` | Companies, users, **subscriptions**, logos, free-signup flag | **Already server-backed** — Postgres via `/api/admin-vendors` (`lib/db.js`); localStorage is now just a cache |
 | `download.service.ts` | `pvi_downloads` | Export/report audit log (time, IP, user) | Server-side audit log |
 | `subscription.service.ts` | `pvi_subs_<email>` | Admin-only subscription fallback | Same store as vendor subscriptions |
 | `custom-dashboard.service.ts` | (post-MVP) | Saved custom dashboards | Post-MVP feature store |
@@ -64,7 +66,8 @@ b. **The dashboard's "view as" / viewed brand** flows from the session into filt
 
 c. **Backend authorization — implemented (production-shaped).** Login goes through `/api/session`, which validates credentials server-side and issues a signed token (HMAC-SHA256, `lib/auth.js`, key = `AUTH_SECRET` env var). The data endpoints (`brand-performance`, `proposal-export`, `report-pdf`) verify the token and derive the tenant from its **claims, never from client input**: a vendor is locked to their own brand + allowed categories; an admin may view any brand (`?brand=`). Missing/invalid/forged tokens → 401.
    - **For production, swap only the token *issuer*** — real SSO instead of the demo `/api/session`, backed by the real user store. The verify + enforcement logic in the data endpoints carries over unchanged.
-   - **MVP limitations:** the issuer uses a seeded demo user list, and every user's `allowedParents` is `[]` (all categories), so **brand-lock is enforced** but category-level gating isn't differentiated yet. Requires `AUTH_SECRET` set in the environment (without it, the API returns 401/500 by design).
+   - **Now enforced beyond brand-lock:** per-user **parent-category, sub-category, and state** restrictions and **control-visibility permissions** are carried in the token and enforced server-side (managed in the admin Vendor Management UI; see `08_Vendor_User_Store_and_Permissions.md`). Subscription status (company window) and the **free-signup** flag also ride in the token — free accounts are rejected from `/api/brand-performance` at the server, and the dashboards gate before loading any data.
+   - **Still MVP:** the issuer uses a seeded user list with a single shared demo password — replaced by Portal SSO in production (the verify/enforce path downstream is unchanged). Requires `AUTH_SECRET` (without it, the API returns 401/500 by design).
 
 ---
 

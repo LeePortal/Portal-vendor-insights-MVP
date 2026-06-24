@@ -19,9 +19,15 @@ Admins are **not** stored here — they come from a hardcoded allowlist in `/api
 for admin.portal.io / SSO until that integration lands. Eventually all users move to admin.portal.io;
 this store is the transitional MVP home.
 
-What's enforced today: **brand/tenant isolation**, **parent categories**, **sub-categories**, **states**.
-Not yet: buying-groups (not a column in the current Redshift queries) and subscription expiry (still a
-client-side grey-out, doesn't block data).
+What's enforced today: **brand/tenant isolation**, **parent categories**, **sub-categories**, **states**,
+plus per-user **control-visibility permissions**. **Subscription gating** now runs *before* any data
+loads (no flash of data before the lock) and is **per-dashboard** (the dashboards menu stays visible);
+**free-signup accounts are rejected from `/api/brand-performance` at the server**. Not yet enforced:
+buying-groups (no such column in the current Redshift queries).
+
+**Self-serve accounts:** anyone can create a free account (`/api/signup` → `createSignupUser`, sets the
+`free_signup` column). These carry no subscription; the app shows them a teaser Home and gates the
+dashboards. Admins can convert one to a subscriber from the Vendor Management UI.
 
 ---
 
@@ -69,12 +75,16 @@ if the browser sends `parents=Networking`, the response stays within the vendor'
 ## 4. Architecture (files)
 
 - `lib/db.js` — Postgres pool, schema bootstrap, first-run seed, `getAll` / `replaceAll` /
-  `getUserForLogin`, and `effective()` (the user⊕company resolution).
+  `getUserForLogin`, `effective()` (the user⊕company resolution), plus **`createSignupUser()`**
+  (self-serve free accounts; `free_signup` column) and **`getPpBrandMap()`/`setPpBrandMap()`** (the
+  Premium Placement advertiser→brand map, `pp_brand_map` table).
 - `lib/seed-data.js` — server-side seed (mirrors the front-end demo seed).
-- `api/session.js` — admin allowlist; else DB lookup → effective restriction → signed token.
+- `api/session.js` — admin allowlist; else DB lookup → effective restriction (+ subscription window +
+  `freeSignup`) → signed token.
+- `api/signup.js` — public self-serve signup → creates a `free_signup=true` account and issues a token.
 - `api/admin-vendors.js` — admin-gated `GET` (hydrate) / `PUT` (replace-all) for the admin UI.
-- `api/brand-performance.js` — `resolveTenant` + `baseFilter` now floor parents **and** subs/states
-  from the token; the competitive/proposal "extras" are floored too.
+- `api/brand-performance.js` — `resolveTenant` + `baseFilter` floor parents **and** subs/states from the
+  token; the competitive/proposal "extras" are floored too; **free-signup tokens get a 403**.
 - `src/app/core/vendor-admin.service.ts` — in `api` mode, hydrates from the server and writes the
   whole dataset back on every change (admins only); localStorage is a fallback cache.
 
@@ -88,5 +98,8 @@ if the browser sends `parents=Networking`, the response stays within the vendor'
   companies (e.g. Legrand) need an explicit brand mapping before their data enforcement is meaningful.
 - **Whole-dataset PUT, last-write-wins** — fine for a single admin / tens of rows; production moves to
   granular, audited mutations against admin.portal.io.
-- **Subscription expiry** still greys the UI client-side; it does not yet block the data API.
+- **Subscription expiry** gates the data dashboards in the UI **before any fetch** (no data flash) and
+  per-dashboard (the dashboards menu stays reachable). Free-signup accounts are blocked at the MI data
+  API; expired *subscribers* are still UI-gated only (the MI API doesn't yet check the company window
+  server-side) — close that with the production auth work.
 - **Buying-group** restriction is stored but not enforced (no such column in the live queries).

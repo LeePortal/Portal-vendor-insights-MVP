@@ -11,7 +11,7 @@ The integration lives in `mvp-angular/api/adbutler.js` (a token-gated, admin-onl
 - **Base URL:** `https://api.adbutler.com/v2`
 - **Auth:** HTTP Basic with the **literal API key** in the header — `Authorization: Basic <KEY>`. ⚠️ **Do NOT base64-encode the key.** Standard Basic auth expects base64; AdButler does not. Base64-encoding gives 401/403.
 - **Key storage:** env var `ADBUTLER_API_KEY` (also accepts `AB_API_KEY`), set in Vercel, **server-side only**. The proxy returns `{ configured: false }` when it's unset so the UI can show a "connect AdButler" state instead of erroring.
-- **Access control:** the proxy is admin-gated today (`claims.role === "admin"`). Advertiser-scoped (vendor) Premium Placement will come with the user view.
+- **Access control:** the campaign-management actions are admin-gated (`claims.role === "admin"`); the **vendor-facing `overview` action** is token-scoped to the caller's own advertiser (it powers the `/premium` dashboard; admins preview a brand via a picker). Both are now built.
 - **Query encoding gotcha:** AdButler datetimes contain `:` and the API wants it **literal**. Encode params normally, then restore the colon (`encodeURIComponent(v).replace(/%3A/g, ":")`). See `qs()` in the proxy.
 - **Pagination:** `limit` + `offset` + `has_more`. Page size 100; loop until `has_more` is false. See `abPages()`.
 - **Response shapes:**
@@ -48,7 +48,7 @@ Key relationships:
 
 ## 3. Endpoints we actually use
 
-The proxy exposes four actions (`?action=`):
+The proxy exposes these actions (`?action=`):
 
 - **`advertisers`** → `GET /advertisers` (paged) → `[{id, name}]`. The count of non-archived advertisers = the "active advertisers" KPI.
 - **`summary&from&to`** → `GET /reports?type=advertiser&period=month&from&to` → sum `summary.impressions` / `summary.clicks` (optionally for one advertiser).
@@ -59,6 +59,7 @@ The proxy exposes four actions (`?action=`):
   3. `GET /reports?type=ad-item&period=month&from&to` — per-ad-item metrics (account-wide; map by id)
   4. `GET /reports?type=ad-item` for the **current month** — to mark each ad-item Active
   5. `GET /reports?type=campaign` — campaign-level totals
+- **`overview&from&to[&advertiserId]`** (vendor `/premium`) → the caller's own advertiser (matched from the token; admins pass `advertiserId` to preview): its ad-items with per-item impressions/clicks + Active, aggregate totals, and the served-impression span (`advertisingStart`/`advertisingEnd`, scanned monthly since 2023) used to shade the growth chart.
 
 ---
 
