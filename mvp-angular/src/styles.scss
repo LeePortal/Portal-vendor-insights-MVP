@@ -259,6 +259,11 @@ table.ptbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .comp-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
 .comp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .comp-share { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-muted); }
+/* Portal-style toggle rows (replaces native checkboxes): orange tick + tint when on, muted when off. */
+.comp-row.on { background: var(--accent-soft); }
+.comp-row.off { color: var(--text-muted); }
+.comp-tick { width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--border); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; font-size: 11px; line-height: 1; color: transparent; }
+.comp-tick.checked { background: var(--accent); border-color: var(--accent); color: #fff; }
 @media (max-width: 820px) { .comp-wrap { grid-template-columns: 1fr; } }
 
 /* ---- small / danger button variants ---- */

@@ -116,12 +116,12 @@ interface Widget { title: string; value: string; yoy: number; points: DualPoint[
         <div class="comp-wrap">
           <div class="comp-list">
             <div class="comp-actions"><a (click)="topN(10)">Top 10</a><a (click)="allComp()">All</a><a (click)="clearComp()">Clear</a></div>
-            <label class="comp-row" *ngFor="let r of compRows; let i = index" [class.viewed]="r.brand === viewAs">
-              <input type="checkbox" [checked]="selectedBrands.includes(r.brand)" (change)="toggleComp(r.brand)" />
-              <span class="comp-dot" [style.background]="colorFor(r.brand, i)"></span>
+            <div class="comp-row" *ngFor="let r of compRows; let i = index" [class.on]="selectedBrands.includes(r.brand)" [class.off]="!selectedBrands.includes(r.brand)" [class.viewed]="r.brand === viewAs" (click)="toggleComp(r.brand)">
+              <span class="comp-tick" [class.checked]="selectedBrands.includes(r.brand)">✓</span>
+              <span class="comp-dot" [style.background]="selectedBrands.includes(r.brand) ? colorFor(r.brand, i) : '#c9c9c9'"></span>
               <span class="comp-name">{{ i + 1 }}. {{ r.brand }}</span>
               <span class="comp-share">{{ pct(r.sharePct / 100) }}</span>
-            </label>
+            </div>
           </div>
           <div class="comp-chart"><app-multiline [series]="compSeries" [axis]="compAxis" yLabel="Share of category (%)" xLabel="Month"></app-multiline></div>
         </div>

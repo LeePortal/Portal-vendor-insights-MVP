@@ -90,7 +90,7 @@ interface SwitchRow { product: string; to: string; units: string; }
         </div>
         <div class="pcard kpi">
           <div class="label">Revenue</div>
-          <div class="value">{{ pstats ? ("$" + compact(pstats.revenue.value)) : "—" }}</div>
+          <div class="value">{{ pstats ? compact(pstats.revenue.value) : "—" }}</div>
           <div class="delta" *ngIf="pstats" [class.up]="pstats.revenue.yoy > 0.05" [class.down]="pstats.revenue.yoy < -0.05">{{ pstats.revenue.yoy >= 0 ? "▲" : "▼" }} {{ absPct(pstats.revenue.yoy) }} YoY</div>
         </div>
         <div class="pcard kpi">
