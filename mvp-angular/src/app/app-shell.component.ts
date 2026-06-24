@@ -89,16 +89,17 @@ export class AppShellComponent {
    *  to the client store only in synthetic mode (no session window). Replaces the old client-only check, which
    *  read a stale local cache as "expired" for vendors. */
   get subStatus(): "active" | "expired" | "scheduled" | "suspended" | "none" {
+    if (this.session.freeSignup) return "none"; // free accounts never carry a subscription
     const st = this.auth.subStatus(); // shared source of truth (the dashboard's load gate uses the same)
     return st === "none" ? this.va.statusOf(this.session.email) : st; // local store only as a synthetic-mode fallback
   }
-  /** Only the data dashboards (Market Insights + Premium Placement) gate on subscription; Home and Profile are
-   *  always reachable so a vendor can land and navigate regardless of subscription state. */
-  private get onGatedRoute(): boolean { const u = this.router.url.split("?")[0]; return u.startsWith("/dashboards"); } // MI window gates /dashboards; Premium Placement gates itself on an active campaign
+  /** The /dashboards HUB (the menu listing Market Insights + Premium Placement) is an ungated landing everyone
+   *  can see; the subscription lock applies only when a SPECIFIC dashboard is opened (/dashboards/<id>). */
+  private get onGatedRoute(): boolean { const u = this.router.url.split("?")[0]; return u.startsWith("/dashboards/"); }
   get locked(): boolean { return !this.isAdmin && this.subStatus !== "active" && this.onGatedRoute; }
   get lockMessage(): string {
     const st = this.subStatus;
-    return st === "scheduled" ? "Your subscription hasn't started yet" : st === "suspended" ? "Your account has been suspended" : "Your subscription has expired";
+    return st === "scheduled" ? "Your subscription hasn't started yet" : st === "suspended" ? "Your account has been suspended" : st === "expired" ? "Your subscription has expired" : "A subscription is required to view this dashboard";
   }
   get subExpired(): boolean { return !this.isAdmin && this.subStatus !== "active"; }
   get subText(): string {

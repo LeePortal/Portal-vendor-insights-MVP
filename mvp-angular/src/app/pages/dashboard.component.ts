@@ -368,6 +368,7 @@ export class DashboardComponent implements OnInit {
    *  the vendor's window isn't active, so ngOnInit skips every fetch and the shell shows the lock screen. */
   get locked(): boolean {
     if (this.isAdmin) return false;
+    if (this.session.freeSignup) return true; // free accounts: data is locked (teaser only)
     const st = this.auth.subStatus();
     const eff = st === "none" ? this.va.statusOf(this.session.email) : st;
     return eff !== "active";
