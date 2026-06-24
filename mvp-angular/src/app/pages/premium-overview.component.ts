@@ -3,7 +3,7 @@ import { CommonModule } from "@angular/common";
 import { PremiumPlacementSource, PpCreative, PpAdvertiser } from "../core/premium-placement.source";
 import { BrandPerformanceSource } from "../core/brand-performance.source";
 import { AuthService } from "../core/auth.service";
-import { AFilter, BrandKpis } from "../core/analytics.service";
+import { AFilter, BrandKpis, AnalyticsService } from "../core/analytics.service";
 import { fmtNumber } from "../core/format";
 
 type Period = "MTD" | "QTD" | "YTD" | "Custom";
@@ -137,6 +137,7 @@ export class PremiumOverviewComponent implements OnInit {
   private pp = inject(PremiumPlacementSource);
   private brandPerf = inject(BrandPerformanceSource);
   private auth = inject(AuthService);
+  private an = inject(AnalyticsService);
   n = fmtNumber;
   session = this.auth.session();
   isAdmin = this.session?.role === "admin";
@@ -149,14 +150,15 @@ export class PremiumOverviewComponent implements OnInit {
   adItems: PpCreative[] = [];
   kpis: BrandKpis | null = null;
   period: Period = "MTD";
-  status: Status = "all";
+  status: Status = "active";
   cFrom = "";
   cTo = "";
   lightbox: string | null = null;
   // Admin Brand picker (vendors are locked, so these stay unused for them)
   advertisers: PpAdvertiser[] = [];
   brandId = "";
-  brandName = "";
+  brandName = "";       // the AdButler advertiser name (for display + Spotlight scope)
+  redshiftBrand = "";   // resolved live Portal/Redshift brand (for the YoY widgets)
 
   /** Whether the view is scoped to a single brand yet (always true for vendors; true for admins once they pick). */
   get hasScope(): boolean { return !this.isAdmin || !!this.brandId; }
@@ -175,7 +177,21 @@ export class PremiumOverviewComponent implements OnInit {
   onBrand(id: string): void {
     this.brandId = id;
     this.brandName = (this.advertisers.find((a) => a.id === id) || { name: "" }).name;
+    this.redshiftBrand = this.resolveBrand(this.brandName);
+    this.status = "active"; // default to Active whenever a brand is picked
     this.load();
+  }
+
+  /** AdButler advertiser names are often shorter than the Redshift brand (e.g. "Origin" vs "Origin Acoustics").
+   *  Resolve the picked advertiser name to the matching live Portal/Redshift brand so the YoY widgets scope right. */
+  private resolveBrand(advName: string): string {
+    const a = advName.trim().toLowerCase();
+    if (!a) return advName;
+    const brands = this.an.brandList || [];
+    const lc = (b: string) => b.trim().toLowerCase();
+    return brands.find((b) => lc(b) === a)
+      || brands.find((b) => lc(b).startsWith(a) || a.startsWith(lc(b)))
+      || advName;
   }
 
   dcls(v?: number): string { return v == null ? "flat" : v > 0 ? "up" : v < 0 ? "down" : "flat"; }
@@ -191,12 +207,13 @@ export class PremiumOverviewComponent implements OnInit {
   }
   private perfFilter(from: string, to: string): AFilter {
     return {
-      brand: this.isAdmin ? this.brandName : "admin", parents: [], subs: [], buyingGroups: [], suppliers: [], states: [], statuses: [],
+      brand: this.isAdmin ? this.redshiftBrand : "admin", parents: [], subs: [], buyingGroups: [], suppliers: [], states: [], statuses: [],
       normalize: false, agg: "monthly", horizon: this.period, from: this.period === "Custom" ? from : "", to: this.period === "Custom" ? to : "",
     };
   }
 
   async ngOnInit(): Promise<void> {
+    await this.an.ready(); // ensure the live Redshift brand list is loaded so resolveBrand() can map names
     if (this.isAdmin) {
       const r = await this.pp.advertisers().catch(() => ({ configured: false, advertisers: [] as PpAdvertiser[] }));
       this.ppConfigured = r.configured; this.advertisers = r.advertisers;

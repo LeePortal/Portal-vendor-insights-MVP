@@ -246,8 +246,10 @@ module.exports = async (req, res) => {
         // a company can own several brands, so the view picks up every one the admin set on the account.
         // Matched by name from the TOKEN, never a client param.
         const norm = (s) => String(s || "").trim().toLowerCase();
-        const names = new Set([norm(claims.brand), ...((claims.allowedBrands) || []).map(norm)].filter(Boolean));
-        const matched = advList.filter((a) => names.has(norm(a.name)));
+        const names = [norm(claims.brand), ...((claims.allowedBrands) || []).map(norm)].filter(Boolean);
+        // Names rarely match exactly (AdButler "Origin" vs Portal "Origin Acoustics"), so match equal-or-prefix either way.
+        const rel = (an) => { const x = norm(an); return names.some((b) => b === x || b.startsWith(x) || x.startsWith(b)); };
+        const matched = advList.filter((a) => rel(a.name));
         if (!matched.length) return res.status(200).json({ configured: true, advertiserName: "", impressions: 0, clicks: 0, adItems: [] });
         for (const a of matched) advIds.add(String(a.id));
         advName = matched.map((a) => a.name).filter(Boolean).join(", ");
