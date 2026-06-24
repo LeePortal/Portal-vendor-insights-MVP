@@ -104,25 +104,29 @@ interface SkuRow { brand: string; model: string; category: string; sales: string
       <div *ngIf="isFree" class="pcard tz-wrap">
         <div class="hd"><div class="t">Top selling SKUs</div><div class="s">Best-selling products across the Portal network — the view subscribers get</div></div>
         <div class="bd">
-          <div class="tz-blur">
+          <div *ngIf="skuLoading" style="padding:4px 0" aria-label="Loading">
+            <div class="hsk" style="height:30px;width:100%;margin-bottom:10px;border-radius:4px"></div>
+            <div class="hsk" *ngFor="let s of [1,2,3,4,5]" style="height:26px;width:100%;margin-bottom:8px;border-radius:4px"></div>
+          </div>
+          <ng-container *ngIf="!skuLoading">
             <table class="ptbl" style="width:100%">
               <thead><tr><th>#</th><th>Brand</th><th>Model</th><th>Category</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Avg Sell $</th></tr></thead>
-              <tbody>
+              <tbody class="tz-blur">
                 <tr *ngFor="let r of teaserSkus; let i = index">
                   <td class="muted">{{ i + 1 }}</td><td style="font-weight:600">{{ r.brand }}</td><td>{{ r.model }}</td><td class="muted">{{ r.category }}</td>
                   <td class="num">{{ r.sales }}</td><td class="num">{{ r.share }}</td><td class="num">{{ r.units }}</td><td class="num">{{ r.avg }}</td>
                 </tr>
               </tbody>
             </table>
-          </div>
-          <div class="tz-ov">
-            <div class="tz-card">
-              <mat-icon style="color:var(--accent);font-size:38px;width:38px;height:38px">lock</mat-icon>
-              <h3 style="margin:8px 0 4px;font-size:16px">Unlock the full SKU view</h3>
-              <p class="muted" style="font-size:12.5px;margin:0 auto 14px;max-width:320px">See the top-selling products, category share, and pricing across the Portal network with a Market Insights subscription.</p>
-              <button class="pbtn primary" (click)="subscribe()">{{ subscribed ? "Thanks — we'll be in touch" : "Subscribe to unlock" }}</button>
+            <div class="tz-ov">
+              <div class="tz-card">
+                <mat-icon style="color:var(--accent);font-size:38px;width:38px;height:38px">lock</mat-icon>
+                <h3 style="margin:8px 0 4px;font-size:16px">Unlock the full SKU view</h3>
+                <p class="muted" style="font-size:12.5px;margin:0 auto 14px;max-width:320px">See the top-selling products, category share, and pricing across the Portal network with a Market Insights subscription.</p>
+                <button class="pbtn primary" (click)="subscribe()">{{ subscribed ? "Thanks — we'll be in touch" : "Subscribe to unlock" }}</button>
+              </div>
             </div>
-          </div>
+          </ng-container>
         </div>
       </div>
     </ng-container>
@@ -136,7 +140,7 @@ interface SkuRow { brand: string; model: string; category: string; sales: string
     @media (max-width:760px) { .kgrid3 { grid-template-columns:1fr; } }
     .tz-wrap .bd { position:relative; }
     .tz-blur { filter:blur(5px); user-select:none; pointer-events:none; }
-    .tz-ov { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; background:rgba(246,246,247,0.45); }
+    .tz-ov { position:absolute; left:0; right:0; bottom:0; top:40px; display:flex; align-items:center; justify-content:center; text-align:center; background:transparent; }
     .tz-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.15); padding:22px 26px; max-width:380px; }
   `],
 })
@@ -161,6 +165,7 @@ export class HomeComponent implements OnInit {
   n = fmtNumber;
   propCards: PropCard[] = [{ label: "Submitted", count: null, yoy: 0 }, { label: "Accepted", count: null, yoy: 0 }, { label: "Completed", count: null, yoy: 0 }];
   subscribed = false;
+  skuLoading = true; // brief faux "fetching" delay on the teaser so it feels like real data is loading
   // Representative teaser rows — intentionally NOT real data (the panel is blurred to entice a subscription).
   teaserSkus: SkuRow[] = [
     { brand: "Sonos", model: "Era 300", category: "Speakers", sales: "$1.42M", share: "8.1%", units: "3,120", avg: "$455" },
@@ -212,6 +217,7 @@ export class HomeComponent implements OnInit {
 
   /** Vendor / free-signup: platform-wide proposal activity (not brand-specific). */
   private async loadVendor(): Promise<void> {
+    if (this.isFree) setTimeout(() => { this.skuLoading = false; }, 1200); // faux fetch delay on the teaser table
     try {
       const r = await this.src.platformStats();
       const by: Record<string, { count: number; yoy: number }> = {};
