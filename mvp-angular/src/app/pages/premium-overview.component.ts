@@ -314,7 +314,7 @@ export class PremiumOverviewComponent implements OnInit {
     this.loading = true;
     try {
       const [ov, perf] = await Promise.all([
-        this.pp.overview(from, to, this.isAdmin ? this.brandId : "").catch(() => ({ configured: false, advertiserName: "", impressions: 0, clicks: 0, adItems: [] as PpCreative[] })),
+        this.pp.overview(from, to, this.isAdmin ? this.brandId : "").catch(() => ({ configured: false, advertiserName: "", advertisingStart: "", impressions: 0, clicks: 0, adItems: [] as PpCreative[] })),
         this.brandPerf.get(this.perfFilter(from, to)).catch(() => null),
       ]);
       this.ppConfigured = ov.configured;
