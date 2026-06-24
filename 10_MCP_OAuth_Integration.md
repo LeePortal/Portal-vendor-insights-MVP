@@ -53,7 +53,7 @@ Access tokens are the **same signed format** the rest of `/api` verifies (`lib/a
 ## Self-service + monitoring
 
 - **Profile → "AI assistant access"** (`profile.component.ts`): shows the connection URL, lists the user's connected assistants, and revokes them. Backed by `oauth.js?action=connections` and `?action=revoke-app` (both authed with the user's session token, scoped to the owner).
-- **Admin → "AI assistants" tab** (`admin.component.ts`): KPIs (agent requests, connected assistants, active users, errors), daily volume, top tools, per-user UI-vs-agent pulls, and connected-assistant detail. Backed by `api/admin-usage.js` (admin-only) reading `request_log`. Every MCP call is logged with `source='agent'`.
+- **Admin → "AI assistants" tab** (`admin.component.ts`): KPIs (agent requests, connected assistants, active users, errors), daily volume, top tools, per-user MCP request counts, and connected-assistant detail. Backed by `api/admin-usage.js` (admin-only) reading `request_log`. Every MCP call is logged with `source='agent'` (the insert is **awaited** in `mcp.js` — a fire-and-forget insert gets killed when the serverless function freezes after responding). Dashboard-UI usage is tracked separately (client-side activity service, shown in the Market Insights / Premium Placement tabs), so `request_log` holds agent traffic only for now.
 
 ## Environment
 

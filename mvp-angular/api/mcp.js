@@ -178,8 +178,10 @@ module.exports = async (req, res) => {
         if (r.status >= 400) { isError = true; out = { error: "Request failed (" + r.status + ")", detail: r.data }; }
         else out = r.data;
       } catch (e) { isError = true; httpStatus = 500; out = { error: String((e && e.message) || e) }; }
-      // Log the call (fire-and-forget) for the admin monitoring widget.
-      db.logRequest({
+      // Log the call for the admin monitoring widget. MUST be awaited: on Vercel the function is
+      // frozen the moment the response is sent, so a fire-and-forget insert is often killed mid-flight
+      // (observed: only ~1 of 3 calls landing). Awaiting costs ~10-30ms and guarantees the write.
+      await db.logRequest({
         ts: started, email: claims.email, brand: claims.brand, source: "agent",
         assistant: claims.client || null, tokenId: claims.tid || null,
         tool: name, params: args, rows, latencyMs: Date.now() - started, status: httpStatus,

@@ -237,15 +237,15 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
             </div>
           </div>
 
-          <div class="pcard"><div class="hd"><div class="t">Per-user activity</div><div class="s">Dashboard (UI) vs assistant (agent) pulls · {{ aiRangeLabel }}</div></div>
+          <div class="pcard"><div class="hd"><div class="t">Requests by user</div><div class="s">MCP tool calls per user · {{ aiRangeLabel }}</div></div>
             <div class="bd" style="max-height:340px;overflow:auto">
               <div *ngIf="!aiUsage.length" class="muted" style="font-size:13px">No activity in range.</div>
               <table class="ptbl" *ngIf="aiUsage.length">
-                <thead><tr><th>User</th><th>Brand</th><th class="num">UI</th><th class="num">Agent</th><th class="num">Total</th><th class="num">Last</th></tr></thead>
+                <thead><tr><th>User</th><th>Brand</th><th class="num">Requests</th><th class="num">Last</th></tr></thead>
                 <tbody>
                   <tr *ngFor="let u of aiUsage">
                     <td>{{ u.email }}</td><td class="muted">{{ u.brand || "—" }}</td>
-                    <td class="num">{{ n(u.ui) }}</td><td class="num">{{ n(u.agent) }}</td><td class="num">{{ n(u.total) }}</td>
+                    <td class="num">{{ n(u.agent) }}</td>
                     <td class="num muted">{{ u.lastTs ? rel(u.lastTs) : "—" }}</td>
                   </tr>
                 </tbody>
