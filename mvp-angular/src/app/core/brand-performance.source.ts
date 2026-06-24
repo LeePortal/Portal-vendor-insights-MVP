@@ -75,7 +75,8 @@ export class BrandPerformanceSource {
   async dealersSpeccing(brand: string): Promise<{ count: number; newCount: number; dealers: { name: string; city: string; state: string; isNew: boolean }[] }> {
     if (DATA_MODE === "api") {
       try {
-        const r = await firstValueFrom(this.http.get<{ count: number; newCount: number; dealers: { id: string; name: string; city: string; state: string; isNew: boolean }[] }>(API_BASE_URL + "/api/new-dealers", { headers: this.authHeader() }));
+        const q = brand ? "?brand=" + encodeURIComponent(brand) : ""; // vendors are token-locked (param ignored); admins use it to scope
+        const r = await firstValueFrom(this.http.get<{ count: number; newCount: number; dealers: { id: string; name: string; city: string; state: string; isNew: boolean }[] }>(API_BASE_URL + "/api/new-dealers" + q, { headers: this.authHeader() }));
         const dealers = r && r.dealers ? r.dealers.map((d) => ({ name: d.name, city: d.city || "", state: d.state || "", isNew: !!d.isNew })) : [];
         return { count: (r && r.count) || dealers.length, newCount: (r && r.newCount) || 0, dealers };
       } catch { return { count: 0, newCount: 0, dealers: [] }; }

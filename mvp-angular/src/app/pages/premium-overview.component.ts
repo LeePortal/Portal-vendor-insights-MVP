@@ -75,6 +75,9 @@ type Status = "all" | "active" | "expired";
         </div>
       </div>
       <app-multiselect label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="onStatuses($event)"></app-multiselect>
+      <div class="filt"><label>Normalize data <span class="info-i" title="Shows only dealers active in both the selected window and the same window a year earlier — for a true year-over-year comparison.">&#9432;</span></label>
+        <label class="switch"><input type="checkbox" [checked]="normalize" (change)="normalize = !normalize; load()" /><span class="track"></span></label>
+      </div>
       <a *ngIf="isAdmin" class="pbtn" [routerLink]="['/admin/premium/mapping']" style="margin-left:auto;align-self:center">Brand mapping</a>
     </div>
 
@@ -134,6 +137,30 @@ type Status = "all" | "active" | "expired";
       </ng-container>
     </div>
 
+    <div class="pcard" *ngIf="hasScope" style="margin-top:16px">
+      <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+        <div><div class="t">New dealers — last 30 days</div><div class="s">Dealers specifying {{ dealerBrandLabel }} · not impacted by filters</div></div>
+        <div style="display:flex;gap:18px;flex:0 0 auto;text-align:right">
+          <div><div style="font-size:20px;font-weight:600">{{ specDealers.count }}</div><div class="muted" style="font-size:12px">dealers</div></div>
+          <div><div style="font-size:20px;font-weight:600;color:var(--positive)">{{ specDealers.newCount }}</div><div class="muted" style="font-size:12px">new</div></div>
+        </div>
+      </div>
+      <div class="bd" style="max-height:380px;overflow:auto">
+        <div *ngIf="dealersLoading" class="muted" style="font-size:13px">Loading…</div>
+        <div *ngIf="!dealersLoading && !specDealers.count" class="muted" style="font-size:13px">No dealers specified {{ dealerBrandLabel }} in the last 30 days.</div>
+        <table class="ptbl" *ngIf="!dealersLoading && specDealers.count" style="table-layout:fixed;width:100%">
+          <thead><tr><th class="sort" (click)="sortDealers('name')" style="cursor:pointer">Dealer {{ dealerArrow('name') }}</th><th class="sort" (click)="sortDealers('state')" style="cursor:pointer">State {{ dealerArrow('state') }}</th><th class="sort" (click)="sortDealers('new')" style="cursor:pointer">New {{ dealerArrow('new') }}</th></tr></thead>
+          <tbody>
+            <tr *ngFor="let d of sortedDealers">
+              <td style="font-weight:600">{{ d.name }}</td>
+              <td class="muted">{{ d.state || '—' }}</td>
+              <td><span *ngIf="d.isNew" style="font-size:11px;color:var(--positive);border:1px solid var(--positive);border-radius:4px;padding:0 6px">New</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div *ngIf="lightbox" class="lbx" (click)="lightbox = null" title="Click to close">
       <img [src]="lightbox" alt="Ad creative, full size" />
     </div>
@@ -159,6 +186,12 @@ export class PremiumOverviewComponent implements OnInit {
   status: Status = "active";
   readonly statusOptions = ["Submitted", "Accepted", "Completed"]; // capped — vendors/admins never see more than these
   statuses: string[] = [...this.statusOptions];                    // proposal-status filter (YoY widgets); default all three
+  normalize = false;                                               // YoY "true" comparison: only dealers active in both windows
+  // New dealers (last 30 days) — filter-independent, brand-scoped (vendor: token brand; admin: picked brand)
+  specDealers: { count: number; newCount: number; dealers: { name: string; city: string; state: string; isNew: boolean }[] } = { count: 0, newCount: 0, dealers: [] };
+  dealersLoading = false;
+  dealerSort: "name" | "state" | "new" = "new";
+  dealerDir = -1;
   cFrom = "";
   cTo = "";
   lightbox: string | null = null;
@@ -180,6 +213,28 @@ export class PremiumOverviewComponent implements OnInit {
 
   openLightbox(url: string): void { this.lightbox = url; }
   onStatuses(s: string[]): void { this.statuses = s; this.load(); }  // proposal-status change → re-pull the YoY widgets
+
+  get sortedDealers(): { name: string; city: string; state: string; isNew: boolean }[] {
+    const k = this.dealerSort, d = this.dealerDir;
+    return [...this.specDealers.dealers].sort((a, b) => {
+      let av: string | number, bv: string | number;
+      if (k === "name") { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
+      else if (k === "state") { av = (a.state || "").toLowerCase(); bv = (b.state || "").toLowerCase(); }
+      else { av = a.isNew ? 1 : 0; bv = b.isNew ? 1 : 0; }
+      return av < bv ? -d : av > bv ? d : 0;
+    });
+  }
+  sortDealers(k: "name" | "state" | "new"): void { if (this.dealerSort === k) this.dealerDir *= -1; else { this.dealerSort = k; this.dealerDir = k === "new" ? -1 : 1; } }
+  dealerArrow(k: "name" | "state" | "new"): string { return this.dealerSort === k ? (this.dealerDir > 0 ? "▲" : "▼") : ""; }
+  get dealerBrandLabel(): string { return this.isAdmin ? (this.redshiftBrand || this.brandName || "this brand") : "your brand"; }
+  /** New-dealers widget data — filter-independent, so loaded separately from load() (on init / brand pick). */
+  async loadDealers(): Promise<void> {
+    const brand = this.isAdmin ? this.redshiftBrand : "";
+    if (this.isAdmin && !brand) { this.specDealers = { count: 0, newCount: 0, dealers: [] }; return; }
+    this.dealersLoading = true;
+    try { this.specDealers = await this.brandPerf.dealersSpeccing(brand); }
+    finally { this.dealersLoading = false; }
+  }
   setPeriod(p: Period): void { this.period = p; if (p !== "Custom") this.load(); }
   onCustom(ev: Event, which: "s" | "e"): void {
     const v = (ev.target as HTMLInputElement).value;
@@ -192,6 +247,7 @@ export class PremiumOverviewComponent implements OnInit {
     this.redshiftBrand = (this.brandMap[id] || [])[0] || this.resolveBrand(this.brandName); // explicit map wins; heuristic is the fallback
     this.status = "active"; // default to Active whenever a brand is picked
     this.load();
+    this.loadDealers(); // brand-scoped, filter-independent
   }
 
   /** AdButler advertiser names are often shorter than the Redshift brand (e.g. "Origin" vs "Origin Acoustics").
@@ -221,7 +277,7 @@ export class PremiumOverviewComponent implements OnInit {
     return {
       brand: this.isAdmin ? this.redshiftBrand : "admin", parents: [], subs: [], buyingGroups: [], suppliers: [], states: [],
       statuses: this.statuses.length ? this.statuses : [...this.statusOptions], // never empty → never leaks statuses beyond the capped three
-      normalize: false, agg: "monthly", horizon: this.period, from: this.period === "Custom" ? from : "", to: this.period === "Custom" ? to : "",
+      normalize: this.normalize, agg: "monthly", horizon: this.period, from: this.period === "Custom" ? from : "", to: this.period === "Custom" ? to : "",
     };
   }
 
@@ -236,6 +292,7 @@ export class PremiumOverviewComponent implements OnInit {
       this.loading = false; // nothing loads until a brand is picked
     } else {
       this.load();
+      this.loadDealers(); // vendor: their own brand, filter-independent
     }
   }
 

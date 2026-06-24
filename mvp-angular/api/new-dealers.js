@@ -49,8 +49,10 @@ module.exports = async (req, res) => {
     const claims = authClaims(req);
     if (!claims) return res.status(401).json({ error: "Unauthorized" });
 
-    const brand = claims.role === "admin" ? "" : String(claims.brand || "");
-    if (!brand) return res.status(200).json({ count: 0, newCount: 0, dealers: [] }); // admin / no own brand
+    // Vendors are locked to their own token brand. Admins have no own brand, so they may pass ?brand= (used by
+    // the /premium preview to scope to the brand they picked); without it an admin gets 0.
+    const brand = claims.role === "admin" ? String((req.query && req.query.brand) || "") : String(claims.brand || "");
+    if (!brand) return res.status(200).json({ count: 0, newCount: 0, dealers: [] });
 
     const hit = _cache.get(brand);
     if (hit && Date.now() - hit.at < TTL_MS) return res.status(200).json(hit.data);
