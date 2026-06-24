@@ -20,6 +20,7 @@ import { DownloadService } from "./core/download.service";
         </div>
         <a class="navlink" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }"><mat-icon>home</mat-icon> Home</a>
         <a class="navlink" routerLink="/dashboards" routerLinkActive="active"><mat-icon>grid_view</mat-icon> Dashboards</a>
+        <a class="navlink" routerLink="/profile" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }"><mat-icon>person</mat-icon> Profile</a>
         <ng-container *ngIf="isAdmin">
           <div class="section-label">Portal Admin</div>
           <a class="navlink" routerLink="/admin" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }"><mat-icon>insights</mat-icon> Admin</a>
@@ -99,7 +100,10 @@ export class AppShellComponent {
     }
     return this.va.statusOf(s.email); // synthetic / no window in session
   }
-  get locked(): boolean { return !this.isAdmin && this.subStatus !== "active"; }
+  /** Only the data dashboards (Market Insights + Premium Placement) gate on subscription; Home and Profile are
+   *  always reachable so a vendor can land and navigate regardless of subscription state. */
+  private get onGatedRoute(): boolean { const u = this.router.url.split("?")[0]; return u.startsWith("/dashboards") || u.startsWith("/premium"); }
+  get locked(): boolean { return !this.isAdmin && this.subStatus !== "active" && this.onGatedRoute; }
   get lockMessage(): string {
     const st = this.subStatus;
     return st === "scheduled" ? "Your subscription hasn't started yet" : st === "suspended" ? "Your account has been suspended" : "Your subscription has expired";

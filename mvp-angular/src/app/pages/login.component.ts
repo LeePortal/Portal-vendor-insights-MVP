@@ -71,7 +71,7 @@ export class LoginComponent {
     const s = await this.auth.login(this.email, this.password);
     if (!s) { this.error = "Invalid email or password."; this.notice = ""; return; }
     const next = this.route.snapshot.queryParamMap.get("next");
-    this.router.navigateByUrl(next || (s.role === "admin" ? "/" : "/dashboards/overview"));
+    this.router.navigateByUrl(next || "/"); // everyone lands on Home (the hub); they pick a dashboard from there
   }
   forgot(): void {
     if (!this.validEmail()) { this.error = "Enter a valid email address first."; this.notice = ""; return; }

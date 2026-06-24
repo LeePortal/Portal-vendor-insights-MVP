@@ -1,5 +1,6 @@
 import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
+import { RouterLink } from "@angular/router";
 import { AuthService } from "../core/auth.service";
 import { DataService } from "../core/data.service";
 import { AFilter } from "../core/analytics.service";
@@ -13,7 +14,7 @@ interface Kp { label: string; value: string; yoy: number; }
 @Component({
   selector: "app-home",
   standalone: true,
-  imports: [CommonModule, TrendChartComponent, MultiLineChartComponent],
+  imports: [CommonModule, RouterLink, TrendChartComponent, MultiLineChartComponent],
   template: `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:center">
       <div>
@@ -21,6 +22,17 @@ interface Kp { label: string; value: string; yoy: number; }
         <p>{{ isAdmin ? "Across all subscribing brands on the Portal network — trailing 12 months vs. prior year." : "How your products are selling across the Portal network — trailing 12 months vs. prior year." }}</p>
       </div>
       <span class="badge-sample">{{ dataMode === 'api' ? 'LIVE DATA' : 'SAMPLE DATA' }}</span>
+    </div>
+
+    <div *ngIf="!isAdmin" class="grid c2" style="margin-bottom:18px">
+      <a routerLink="/dashboards/overview" class="pcard" style="text-decoration:none;color:inherit;display:block;cursor:pointer">
+        <div class="hd"><div class="t">Market Insights</div><div class="s">How your products are selling across the Portal network</div></div>
+        <div class="bd" style="font-size:13px;color:var(--accent);font-weight:700">Open dashboard &rarr;</div>
+      </a>
+      <a routerLink="/premium" class="pcard" style="text-decoration:none;color:inherit;display:block;cursor:pointer">
+        <div class="hd"><div class="t">Premium Placement</div><div class="s">Your Spotlight advertising performance</div></div>
+        <div class="bd" style="font-size:13px;color:var(--accent);font-weight:700">Open dashboard &rarr;</div>
+      </a>
     </div>
 
     <div *ngIf="loadError" class="pcard" style="border:1px solid var(--negative);margin-bottom:16px"><div class="bd" style="color:var(--negative);font-size:13px">{{ loadError }}</div></div>
