@@ -1,6 +1,7 @@
 import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { RouterLink } from "@angular/router";
+import { MultiSelectComponent } from "../components/multiselect.component";
 import { PremiumPlacementSource, PpCreative, PpAdvertiser } from "../core/premium-placement.source";
 import { BrandPerformanceSource } from "../core/brand-performance.source";
 import { AuthService } from "../core/auth.service";
@@ -23,7 +24,7 @@ type Status = "all" | "active" | "expired";
 @Component({
   selector: "app-premium-overview",
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, MultiSelectComponent],
   styles: [`
     .kgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
     .aigrid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; }
@@ -73,6 +74,8 @@ type Status = "all" | "active" | "expired";
           <button [class.on]="status === 'expired'" (click)="status = 'expired'">Expired ({{ adItems.length - activeCount }})</button>
         </div>
       </div>
+      <app-multiselect label="Proposal status" allLabel="All statuses" [search]="false" [sort]="false" [options]="statusOptions" [selected]="statuses" (selectedChange)="onStatuses($event)"></app-multiselect>
+      <a *ngIf="isAdmin" class="pbtn" [routerLink]="['/admin/premium/mapping']" style="margin-left:auto;align-self:center">Brand mapping</a>
     </div>
 
     <div *ngIf="isAdmin && !loading && !mappedAdvertisers.length" class="muted" style="font-size:12px;margin:-4px 0 12px">No brands are mapped yet — set advertiser↔brand links in <a [routerLink]="['/admin/premium/mapping']">Brand mapping</a>.</div>
@@ -154,6 +157,8 @@ export class PremiumOverviewComponent implements OnInit {
   kpis: BrandKpis | null = null;
   period: Period = "MTD";
   status: Status = "active";
+  readonly statusOptions = ["Submitted", "Accepted", "Completed"]; // capped — vendors/admins never see more than these
+  statuses: string[] = [...this.statusOptions];                    // proposal-status filter (YoY widgets); default all three
   cFrom = "";
   cTo = "";
   lightbox: string | null = null;
@@ -174,6 +179,7 @@ export class PremiumOverviewComponent implements OnInit {
   }
 
   openLightbox(url: string): void { this.lightbox = url; }
+  onStatuses(s: string[]): void { this.statuses = s; this.load(); }  // proposal-status change → re-pull the YoY widgets
   setPeriod(p: Period): void { this.period = p; if (p !== "Custom") this.load(); }
   onCustom(ev: Event, which: "s" | "e"): void {
     const v = (ev.target as HTMLInputElement).value;
@@ -213,7 +219,8 @@ export class PremiumOverviewComponent implements OnInit {
   }
   private perfFilter(from: string, to: string): AFilter {
     return {
-      brand: this.isAdmin ? this.redshiftBrand : "admin", parents: [], subs: [], buyingGroups: [], suppliers: [], states: [], statuses: [],
+      brand: this.isAdmin ? this.redshiftBrand : "admin", parents: [], subs: [], buyingGroups: [], suppliers: [], states: [],
+      statuses: this.statuses.length ? this.statuses : [...this.statusOptions], // never empty → never leaks statuses beyond the capped three
       normalize: false, agg: "monthly", horizon: this.period, from: this.period === "Custom" ? from : "", to: this.period === "Custom" ? to : "",
     };
   }

@@ -1,5 +1,6 @@
 import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
+import { FormsModule } from "@angular/forms";
 import { RouterLink } from "@angular/router";
 import { PremiumPlacementSource, PpAdvertiser } from "../core/premium-placement.source";
 import { AnalyticsService } from "../core/analytics.service";
@@ -13,7 +14,7 @@ import { AnalyticsService } from "../core/analytics.service";
 @Component({
   selector: "app-premium-mapping",
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, FormsModule],
   styles: [`
     .bm-row { display:grid; grid-template-columns:1.5fr 0.5fr 2.2fr; gap:14px; padding:13px 14px; border-bottom:1px solid var(--border); align-items:center; }
     .bm-row:last-child { border-bottom:none; }
@@ -55,10 +56,12 @@ import { AnalyticsService } from "../core/analytics.service";
                 <button class="accept" (click)="addBrand(a.id, sg)">Accept</button>
               </ng-container>
               <span *ngIf="!brandsFor(a.id).length && !suggestion(a.name)" class="warn">unmapped</span>
-              <select class="bm-add" (change)="onAdd(a.id, $event)">
-                <option value="">+ Add brand…</option>
-                <option *ngFor="let b of availableBrands(a.id)" [value]="b">{{ b }}</option>
-              </select>
+              <span style="position:relative;display:inline-block">
+                <input class="minput" type="text" style="font-size:12px;min-width:160px" placeholder="Add brand…" [(ngModel)]="addQuery[a.id]" (keyup.escape)="addQuery[a.id] = ''" />
+                <div class="suggest" *ngIf="addSuggest(a.id).length" style="position:absolute;left:0;right:0;top:100%;margin-top:2px;background:#fff;z-index:20;min-width:170px">
+                  <div class="sg" *ngFor="let b of addSuggest(a.id)" (click)="addBrand(a.id, b); addQuery[a.id] = ''">{{ b }}</div>
+                </div>
+              </span>
               <span *ngIf="saving === a.id" class="muted" style="font-size:12px">saving…</span>
             </div>
           </div>
@@ -89,10 +92,12 @@ export class PremiumMappingComponent implements OnInit {
     return this.brands.find((b) => lc(b) === a) || this.brands.find((b) => lc(b).startsWith(a) || a.startsWith(lc(b))) || "";
   }
 
-  onAdd(id: string, ev: Event): void {
-    const sel = ev.target as HTMLSelectElement;
-    const b = sel.value; sel.value = "";
-    if (b) this.addBrand(id, b);
+  addQuery: Record<string, string> = {};
+  /** Predictive matches for the per-row "Add brand" box (brands not already mapped to this advertiser). */
+  addSuggest(id: string): string[] {
+    const q = (this.addQuery[id] || "").toLowerCase().trim();
+    if (!q) return [];
+    return this.availableBrands(id).filter((b) => b.toLowerCase().startsWith(q)).slice(0, 8);
   }
   addBrand(id: string, brand: string): void {
     const list = [...this.brandsFor(id)];
