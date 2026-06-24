@@ -44,6 +44,7 @@ export const VENDORS: Vendor[] = [
   { id: "klipsch", name: "Klipsch", primaryCategory: "Audio", contactEmail: "vendor@klipsch.com" },
   { id: "araknis", name: "Araknis Networks", primaryCategory: "Networking", contactEmail: "vendor@araknis.com" },
   { id: "luma", name: "Luma Surveillance", primaryCategory: "Security & Surveillance", contactEmail: "vendor@luma.com" },
+  { id: "origin", name: "Origin Acoustics", primaryCategory: "Audio", contactEmail: "natasha@originacoustics.com" },
 ];
 
 export const DEALERS = [

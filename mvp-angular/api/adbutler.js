@@ -299,14 +299,11 @@ module.exports = async (req, res) => {
         const brandSet = new Set(((claims.allowedBrands) || []).map(norm).filter(Boolean));
         if (claims.brand) brandSet.add(norm(claims.brand));
         const map = await db.getPpBrandMap().catch(() => ({}));
-        const mapKeys = Object.keys(map);
-        let matched;
-        if (mapKeys.length) {
-          // Explicit advertiser->brand map governs: advertisers whose mapped Portal brand(s) intersect the vendor's brands.
-          const ids = new Set(mapKeys.filter((id) => (map[id] || []).some((b) => brandSet.has(norm(b)))));
-          matched = advList.filter((a) => ids.has(String(a.id)));
-        } else {
-          // Transitional fallback (no map set yet): equal-or-prefix name match (AdButler "Origin" vs Portal "Origin Acoustics").
+        // Explicit advertiser->brand map first: advertisers whose mapped Portal brand(s) intersect the vendor's brands.
+        const mapIds = new Set(Object.keys(map).filter((id) => (map[id] || []).some((b) => brandSet.has(norm(b)))));
+        let matched = advList.filter((a) => mapIds.has(String(a.id)));
+        if (!matched.length) {
+          // Map empty OR doesn't cover this vendor → equal-or-prefix name match (AdButler "Origin" vs Portal "Origin Acoustics").
           const rel = (an) => { const x = norm(an); return [...brandSet].some((b) => b === x || b.startsWith(x) || x.startsWith(b)); };
           matched = advList.filter((a) => rel(a.name));
         }

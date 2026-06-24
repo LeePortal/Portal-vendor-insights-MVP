@@ -59,6 +59,7 @@ function ensureReady() {
     await p.query(`CREATE TABLE IF NOT EXISTS pp_brand_map (advertiser_id TEXT PRIMARY KEY, brands JSONB NOT NULL DEFAULT '[]')`);
     const { rows } = await p.query("SELECT COUNT(*)::int AS n FROM vendor_users");
     if (!rows[0].n) await replaceAll(buildSeed());
+    await ensureDemo(p).catch((e) => console.error("ensureDemo:", (e && e.message) || e)); // idempotent demo-account top-up
   })().catch((e) => { _ready = null; throw e; });
   return _ready;
 }
@@ -126,6 +127,27 @@ async function replaceAll(data) {
     throw e;
   } finally {
     client.release();
+  }
+}
+
+/** Idempotently ensure the Origin Acoustics demo account (company + Natasha) exists, even on an already-seeded
+ *  DB. ON CONFLICT DO NOTHING so it never clobbers later admin edits. Runs every cold start; cheap. */
+async function ensureDemo(p) {
+  const seed = buildSeed();
+  for (const c of seed.companies.filter((x) => x.name === "Origin Acoustics")) {
+    await p.query(
+      `INSERT INTO vendor_companies (name, brands, perms, parents, subs, states, start_date, end_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (name) DO NOTHING`,
+      [c.name, J(c.brands), JSON.stringify(c.perms || {}), J(c.parents), J(c.subs), J(c.states), c.start || "", c.end || ""]);
+  }
+  for (const u of seed.users.filter((x) => x.companyName === "Origin Acoustics")) {
+    await p.query(
+      `INSERT INTO vendor_users (email, first_name, last_name, name, company_name, brands, perms, suspended,
+         parents, subs, buying_groups, states, subscriptions, created_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (email) DO NOTHING`,
+      [String(u.email || "").toLowerCase(), u.firstName || "", u.lastName || "", u.name || u.email, u.companyName || "",
+       J(u.brands), JSON.stringify(u.perms || {}), !!u.suspended, J(u.parents), J(u.subs), J(u.buyingGroups), J(u.states),
+       J(u.subscriptions), u.createdBy || "", u.createdAt || null]);
   }
 }
 

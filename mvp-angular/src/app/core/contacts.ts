@@ -2,6 +2,7 @@
 export interface Contact { first: string; last: string; email: string; }
 
 export const VENDOR_CONTACTS: Record<string, Contact[]> = {
+  origin: [{ first: "Natasha", last: "", email: "natasha@originacoustics.com" }],
   sonos: [
     { first: "Casey", last: "Clemens", email: "casey.clemens@sonos.com" },
     { first: "Cathy", last: "Murphy", email: "cathy.murphy@sonos.com" },
