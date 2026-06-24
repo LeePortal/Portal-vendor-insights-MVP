@@ -71,11 +71,14 @@ type Period = "mtd" | "lastmonth" | "custom";
       <div class="pcard">
         <div class="hd" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div><div class="t">Ad items</div><div class="s">Each creative's own impressions &amp; clicks for the selected period &middot; newest uploaded first</div></div>
-          <div class="tgl">
-            <button *ngFor="let f of filters" [class.on]="itemFilter === f.key" (click)="itemFilter = f.key">{{ f.label }} ({{ f.count }})</button>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="tgl">
+              <button *ngFor="let f of filters" [class.on]="itemFilter === f.key" (click)="itemFilter = f.key">{{ f.label }} ({{ f.count }})</button>
+            </div>
+            <button class="pbtn" style="padding:4px 11px;font-size:12px" (click)="adItemsOpen = !adItemsOpen">{{ adItemsOpen ? 'Collapse' : 'Expand' }}</button>
           </div>
         </div>
-        <div class="bd">
+        <div class="bd" *ngIf="adItemsOpen">
           <div *ngIf="!shown.length" class="muted" style="font-size:13px">No {{ itemFilter === 'all' ? '' : itemFilter }} ad items for this period.</div>
           <div class="aigrid">
             <div *ngFor="let cr of shown" class="aicard">
@@ -116,6 +119,7 @@ export class CampaignLandingComponent implements OnInit {
   detail: PpCampaignDetail | null = null;
   creatives: PpCreative[] = [];
   itemFilter: ItemFilter = "active";
+  adItemsOpen = true;  // collapse toggle for the ad-items section
   period: Period = "mtd";
   cFrom = "";
   cTo = "";

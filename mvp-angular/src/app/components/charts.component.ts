@@ -149,6 +149,8 @@ interface DPoint { label: string; category: number; brand: number; }
           <div #plot class="chart-plot" [style.height.px]="ph" (mousemove)="hover($event)" (mouseleave)="hi=-1">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
               <g><line *ngFor="let gy of gridYs" x1="0" [attr.y1]="gy" [attr.x2]="W" [attr.y2]="gy" stroke="#e8e9ed" stroke-width="1" vector-effect="non-scaling-stroke"></line><line *ngFor="let gx of gridXs" [attr.x1]="gx" y1="0" [attr.x2]="gx" [attr.y2]="H" stroke="#eef0f2" stroke-width="1" vector-effect="non-scaling-stroke"></line></g>
+              <rect *ngIf="shadeFrom >= 0" [attr.x]="shadeX" y="0" [attr.width]="W - shadeX" [attr.height]="H" fill="rgba(255,80,0,0.07)"></rect>
+              <line *ngIf="shadeFrom >= 0" [attr.x1]="shadeX" y1="0" [attr.x2]="shadeX" [attr.y2]="H" stroke="#ff5000" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
               <polyline [attr.points]="line('category')" fill="none" stroke="#27272a" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
               <polyline *ngIf="showBrand" [attr.points]="line('brand')" fill="none" stroke="#ff5000" stroke-width="2.5" stroke-dasharray="7 4" vector-effect="non-scaling-stroke"></polyline>
               <g><circle *ngFor="let p of pts('category')" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="points.length <= 3 ? 5 : 3" fill="#27272a"></circle></g>
@@ -157,7 +159,7 @@ interface DPoint { label: string; category: number; brand: number; }
             <div class="chart-guide" *ngIf="hi>=0 && points.length" [style.left.%]="guideX"></div>
             <div class="chart-tip" *ngIf="hi>=0 && points[hi]" [style.left.%]="guideX">
               <b>{{ points[hi].label }}</b>
-              <div><span class="chart-dot" style="background:#27272a"></span>Category: {{ fv(points[hi].category) }}</div>
+              <div><span class="chart-dot" style="background:#27272a"></span>{{ categoryLabel }}: {{ fv(points[hi].category) }}</div>
               <div *ngIf="showBrand"><span class="chart-dot" style="background:#ff5000"></span>{{ brandLabel }}: {{ fv(points[hi].brand) }}</div>
             </div>
           </div>
@@ -166,8 +168,9 @@ interface DPoint { label: string; category: number; brand: number; }
         <div class="chart-xrow"><span *ngFor="let l of axisLabels">{{ l }}</span></div>
         <div class="chart-xt">{{ xLabel }}</div>
         <div style="display:flex;gap:14px;font-size:11px;color:var(--text-muted);margin-top:4px;margin-left:46px">
-          <span><span style="display:inline-block;width:10px;height:2px;background:#27272a;vertical-align:middle"></span> Category</span>
+          <span><span style="display:inline-block;width:10px;height:2px;background:#27272a;vertical-align:middle"></span> {{ categoryLabel }}</span>
           <span *ngIf="showBrand"><span style="display:inline-block;width:10px;height:2px;background:#ff5000;vertical-align:middle"></span> {{ brandLabel }} <span style="color:#ff5000">(right axis)</span></span>
+          <span *ngIf="shadeFrom >= 0"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,80,0,0.15);border:1px solid rgba(255,80,0,0.5);vertical-align:middle"></span> Advertising period</span>
         </div>
       </div>
     </div>
@@ -180,7 +183,10 @@ export class DualLineChartComponent implements AfterViewInit {
   @Input() yLabel = "$ value";
   @Input() xLabel = "Period";
   @Input() valueFormat: VFmt = "money";
+  @Input() categoryLabel = "Category";
+  @Input() shadeFrom = -1; // index from which to shade the advertising period; -1 = no shade
   W = 640; H = 210; pad = 12; ph = 215; hi = -1;
+  get shadeX(): number { const n = this.points.length; return n <= 1 ? 0 : (this.shadeFrom / (n - 1)) * this.W; }
   @ViewChild("plot") plot?: ElementRef<HTMLElement>;
   ngAfterViewInit(): void { setTimeout(() => this.measure()); }
   @HostListener("window:resize") measure(): void { const el = this.plot?.nativeElement; if (el) { this.W = Math.max(50, el.clientWidth); this.H = Math.max(50, el.clientHeight); } }

@@ -277,6 +277,8 @@ module.exports = async (req, res) => {
       labels,
       values: periodKeys.map((k) => (tenant.brand ? (cell.get(tenant.brand + "|" + k) || 0) : (periodsMap.get(k).total || 0))),
       prior: periodKeys.map((k) => (tenant.brand ? (priorCell.get(tenant.brand + "|" + k) || 0) : (priorTotals.get(k) || 0))),
+      category: periodKeys.map((k) => (periodsMap.get(k).total || 0)), // whole category-in-scope total per period (brand-vs-category chart)
+      keys: periodKeys.map((k) => String(k).slice(0, 7)),               // "YYYY-MM" per period, to align the advertising-period shade
     };
 
     const k = kpiRes.rows[0] || {};

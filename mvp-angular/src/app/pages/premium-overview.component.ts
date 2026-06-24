@@ -2,9 +2,11 @@ import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { RouterLink } from "@angular/router";
 import { MultiSelectComponent } from "../components/multiselect.component";
+import { DualLineChartComponent } from "../components/charts.component";
 import { PremiumPlacementSource, PpCreative, PpAdvertiser } from "../core/premium-placement.source";
 import { BrandPerformanceSource } from "../core/brand-performance.source";
 import { AuthService } from "../core/auth.service";
+import { DataService } from "../core/data.service";
 import { AFilter, BrandKpis, AnalyticsService } from "../core/analytics.service";
 import { fmtNumber } from "../core/format";
 
@@ -24,7 +26,7 @@ type Status = "all" | "active" | "expired";
 @Component({
   selector: "app-premium-overview",
   standalone: true,
-  imports: [CommonModule, RouterLink, MultiSelectComponent],
+  imports: [CommonModule, RouterLink, MultiSelectComponent, DualLineChartComponent],
   styles: [`
     .kgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
     .aigrid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; }
@@ -105,9 +107,21 @@ type Status = "all" | "active" | "expired";
       <div class="pcard kpi"><div class="label">YoY Revenue</div><div class="value">{{ kpis ? ("$" + n(kpis.revenue)) : "—" }}</div><div class="delta" [ngClass]="dcls(kpis?.revenueYoY)">{{ dtxt(kpis?.revenueYoY) }}</div></div>
     </div>
 
-    <div class="pcard">
-      <div class="hd"><div class="t">Ad items</div><div class="s">Your Spotlight creatives · each one's impressions &amp; clicks for the selected period · newest uploaded first</div></div>
+    <div class="pcard" style="margin-bottom:16px">
+      <div class="hd"><div class="t">Revenue vs. category</div><div class="s">Your revenue against the rest of your parent category (brand removed) · advertising period shaded</div></div>
       <div class="bd">
+        <div *ngIf="chartLoading" class="muted" style="font-size:13px">Loading…</div>
+        <div *ngIf="!chartLoading && !chartPoints.length" class="muted" style="font-size:13px">Not enough category history to chart this brand yet.</div>
+        <app-dual *ngIf="chartPoints.length" [points]="chartPoints" [shadeFrom]="chartShadeFrom" [brandLabel]="(isAdmin ? redshiftBrand : ownBrand) || 'Brand'" categoryLabel="Parent category, excl. brand" yLabel="Revenue" xLabel="Month" valueFormat="money"></app-dual>
+      </div>
+    </div>
+
+    <div class="pcard">
+      <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+        <div><div class="t">Ad items</div><div class="s">Your Spotlight creatives · each one's impressions &amp; clicks for the selected period · newest uploaded first</div></div>
+        <button class="pbtn" style="padding:4px 11px;font-size:12px" (click)="adItemsOpen = !adItemsOpen">{{ adItemsOpen ? 'Collapse' : 'Expand' }}</button>
+      </div>
+      <div class="bd" *ngIf="adItemsOpen">
         <div *ngIf="isAdmin && !brandId" class="muted" style="font-size:13px">Select a brand to view its Premium Placement performance.</div>
         <ng-container *ngIf="hasScope">
           <div *ngIf="!loading && ppConfigured && !advertiserName" class="muted" style="font-size:13px">No Spotlight advertiser is matched to {{ isAdmin ? "that brand" : "your company" }} yet.</div>
@@ -171,6 +185,7 @@ export class PremiumOverviewComponent implements OnInit {
   private brandPerf = inject(BrandPerformanceSource);
   private auth = inject(AuthService);
   private an = inject(AnalyticsService);
+  private data = inject(DataService);
   n = fmtNumber;
   session = this.auth.session();
   isAdmin = this.session?.role === "admin";
@@ -193,6 +208,12 @@ export class PremiumOverviewComponent implements OnInit {
   dealersLoading = false;
   dealerSort: "name" | "state" | "new" = "new";
   dealerDir = -1;
+  // Revenue-vs-category lift chart (brand vs the rest of its parent category, advertising period shaded)
+  ownBrand = "";  // vendor's own focal brand (admins use the picked brand instead)
+  chartPoints: { label: string; category: number; brand: number }[] = [];
+  chartShadeFrom = -1;
+  chartLoading = false;
+  adItemsOpen = true;  // collapse toggle for the ad-items section
   cFrom = "";
   cTo = "";
   lightbox: string | null = null;
@@ -235,6 +256,27 @@ export class PremiumOverviewComponent implements OnInit {
     const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1] || "";
     return mon ? mon + " " + m[1] : "";
   }
+  /** Revenue-vs-category chart over a monthly window spanning the advertising period (plus ~5 months before for
+   *  context). Brand line = focal brand's revenue; category line = the rest of its parent category (total − brand). */
+  async loadChart(): Promise<void> {
+    const focal = this.isAdmin ? this.redshiftBrand : this.ownBrand;
+    if (!this.hasScope || !focal) { this.chartPoints = []; this.chartShadeFrom = -1; return; }
+    const now = new Date(), ymd = (d: Date) => d.toISOString().slice(0, 10);
+    const m = /^(\d{4})-(\d{2})$/.exec(this.advertisingStart);
+    const from = m ? ymd(new Date(Date.UTC(+m[1], +m[2] - 1 - 5, 1))) : ymd(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1)));
+    const f: AFilter = { brand: focal, parents: [], subs: [], buyingGroups: [], suppliers: [], states: [], statuses: this.statuses.length ? this.statuses : [...this.statusOptions], normalize: false, agg: "monthly", horizon: "Custom", from, to: ymd(now) };
+    this.chartLoading = true;
+    try {
+      const rb = (await this.brandPerf.get(f)).revByPeriod;
+      const cat = (rb && rb.category) || [], vals = (rb && rb.values) || [];
+      if (rb && rb.category && rb.category.length) {
+        this.chartPoints = rb.labels.map((lab, i) => ({ label: lab, brand: vals[i] || 0, category: Math.max(0, (cat[i] || 0) - (vals[i] || 0)) }));
+        this.chartShadeFrom = (this.advertisingStart && rb.keys) ? rb.keys.indexOf(this.advertisingStart) : -1;
+      } else { this.chartPoints = []; this.chartShadeFrom = -1; }
+    } catch { this.chartPoints = []; this.chartShadeFrom = -1; }
+    finally { this.chartLoading = false; }
+  }
+
   /** New-dealers widget data — filter-independent, so loaded separately from load() (on init / brand pick). */
   async loadDealers(): Promise<void> {
     const brand = this.isAdmin ? this.redshiftBrand : "";
@@ -291,6 +333,7 @@ export class PremiumOverviewComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.an.ready(); // ensure the live Redshift brand list is loaded so resolveBrand() can map names
+    this.ownBrand = this.data.getVendor(this.session?.vendorId || "")?.name || ""; // vendor's focal brand for the chart
     if (this.isAdmin) {
       const [r, mp] = await Promise.all([
         this.pp.advertisers().catch(() => ({ configured: false, advertisers: [] as PpAdvertiser[] })),
@@ -324,6 +367,8 @@ export class PremiumOverviewComponent implements OnInit {
       this.clicks = ov.clicks;
       this.adItems = ov.adItems;
       this.kpis = perf ? perf.kpis : null;
+      this.loadChart();
+
     } finally {
       this.loading = false;
       this.firstLoad = false;
