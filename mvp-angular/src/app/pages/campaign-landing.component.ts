@@ -94,7 +94,7 @@ type Period = "mtd" | "lastmonth" | "custom";
                 <div class="aimetrics">
                   <div class="stat"><div class="v">{{ n(cr.impressions) }}</div><div class="l">Impressions</div></div>
                   <div class="stat"><div class="v">{{ n(cr.clicks) }}</div><div class="l">Clicks</div></div>
-                  <div class="stat"><div class="v" style="font-size:15px;display:flex;align-items:center;gap:6px">{{ startedLabel(cr) }}<span *ngIf="isStale(cr)" title="This ad is over 6 months old — refresh the creative" style="cursor:help;display:inline-flex"><svg width="15" height="15" viewBox="0 0 24 24" role="img" aria-label="Over 6 months old"><path d="M12 3 L22 20 H2 Z" fill="#f6c343" stroke="#b8860b" stroke-width="1.2" stroke-linejoin="round"></path><rect x="11" y="9" width="2" height="6" rx="1" fill="#5c4500"></rect><circle cx="12" cy="17" r="1.2" fill="#5c4500"></circle></svg></span></div><div class="l">Ad started</div></div>
+                  <div class="stat"><div class="v" style="font-size:15px;display:flex;align-items:center;gap:6px">{{ startedLabel(cr) }}<span *ngIf="isStale(cr)" title="Active ad not refreshed in over 6 months — refresh the creative" style="cursor:help;display:inline-flex"><svg width="15" height="15" viewBox="0 0 24 24" role="img" aria-label="Not refreshed in over 6 months"><path d="M12 3 L22 20 H2 Z" fill="#f6c343" stroke="#b8860b" stroke-width="1.2" stroke-linejoin="round"></path><rect x="11" y="9" width="2" height="6" rx="1" fill="#5c4500"></rect><circle cx="12" cy="17" r="1.2" fill="#5c4500"></circle></svg></span></div><div class="l">Ad started</div><div *ngIf="refreshedLabel(cr)" class="muted" style="font-size:10px;margin-top:3px">refreshed {{ refreshedLabel(cr) }}</div></div>
                 </div>
               </div>
             </div>
@@ -113,10 +113,30 @@ export class CampaignLandingComponent implements OnInit {
   openLightbox(url: string): void { this.lightbox = url; }
 
   private parseDate(s: string): Date | null { if (!s) return null; const d = new Date(String(s).replace(" ", "T")); return isNaN(d.getTime()) ? null : d; }
-  /** "Ad started" date label for an ad-item (its AdButler created_date). */
-  startedLabel(cr: PpCreative): string { const d = this.parseDate(cr.createdDate); return d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"; }
-  /** Flag an ACTIVE ad-item whose creative is over 6 months old (refresh recommended). Expired ads are never flagged. */
-  isStale(cr: PpCreative): boolean { if (!cr.active) return false; const d = this.parseDate(cr.createdDate); if (!d) return false; const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 6); return d.getTime() < cutoff.getTime(); }
+  private fmtDate(d: Date): string { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+  /** The later of created_date and last_modified — swapping the creative bumps last_modified, which resets the
+   *  staleness clock (a new image is treated as a refresh). */
+  private refreshedDate(cr: PpCreative): Date | null {
+    const c = this.parseDate(cr.createdDate), m = this.parseDate(cr.lastModified);
+    if (c && m) return m.getTime() > c.getTime() ? m : c;
+    return m || c;
+  }
+  /** "Ad started" date — the original launch (created_date). */
+  startedLabel(cr: PpCreative): string { const d = this.parseDate(cr.createdDate); return d ? this.fmtDate(d) : "—"; }
+  /** A "refreshed" date, shown only when the creative was modified at least a day after launch. */
+  refreshedLabel(cr: PpCreative): string {
+    const c = this.parseDate(cr.createdDate), m = this.parseDate(cr.lastModified);
+    if (!c || !m || m.getTime() - c.getTime() < 86400000) return "";
+    return this.fmtDate(m);
+  }
+  /** Flag an ACTIVE ad-item whose creative hasn't been refreshed in over 6 months. Expired ads are never flagged. */
+  isStale(cr: PpCreative): boolean {
+    if (!cr.active) return false;
+    const d = this.refreshedDate(cr);
+    if (!d) return false;
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 6);
+    return d.getTime() < cutoff.getTime();
+  }
 
   private route = inject(ActivatedRoute);
   private pp = inject(PremiumPlacementSource);

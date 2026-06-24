@@ -332,7 +332,7 @@ module.exports = async (req, res) => {
           const imageUrl = (it.creative_url && !/default_banner\.gif/i.test(it.creative_url))
             ? it.creative_url
             : (it.creative ? "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(it.creative)) : "");
-          return { bannerId: id, name: it.name || ("Ad Item " + id), width: num(it.width), height: num(it.height), imageUrl, clickUrl: it.location || "", createdDate: it.created_date || "", impressions: m.impressions, clicks: m.clicks, active: (curImpr[id] || 0) > 0 };
+          return { bannerId: id, name: it.name || ("Ad Item " + id), width: num(it.width), height: num(it.height), imageUrl, clickUrl: it.location || "", createdDate: it.created_date || "", lastModified: it.last_modified || "", impressions: m.impressions, clicks: m.clicks, active: (curImpr[id] || 0) > 0 };
         })
         .sort((a, b) => String(b.createdDate).localeCompare(String(a.createdDate)));
       const impressions = adItems.reduce((s, c) => s + c.impressions, 0);

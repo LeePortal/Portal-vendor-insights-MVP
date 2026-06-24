@@ -14,7 +14,7 @@ export interface PpCampaign { id: string; name: string; advertiserId: string; ad
 /** An ad-item (AdButler image_ad_item) within a campaign — the creative image plus its own metrics. */
 export interface PpCreative {
   bannerId: string; name: string; width: number; height: number; imageUrl: string;
-  clickUrl: string; createdDate: string; impressions: number; clicks: number; active: boolean;
+  clickUrl: string; createdDate: string; lastModified: string; impressions: number; clicks: number; active: boolean;
 }
 export interface PpCampaignDetail { id: string; name: string; advertiserId: string; advertiserName: string; active: boolean; impressions: number; clicks: number; }
 
