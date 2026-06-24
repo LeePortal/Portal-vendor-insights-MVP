@@ -1,8 +1,13 @@
-import { Component, inject } from "@angular/core";
+import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
+import { HttpClient } from "@angular/common/http";
+import { firstValueFrom } from "rxjs";
 import { AuthService } from "../core/auth.service";
 import { VendorAdminService, VUser, Company } from "../core/vendor-admin.service";
+import { API_BASE_URL } from "../core/app-config";
+
+interface ConnectedApp { tokenId: string; name: string; createdAt: number; lastAt: number; revoking?: boolean; }
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -55,11 +60,37 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
         </div>
       </div>
     </div>
+
+    <div class="pcard" style="margin-top:16px">
+      <div class="hd"><div class="t">AI assistant access</div><div class="s">Let an AI assistant (like Claude) read your Portal data — scoped to exactly what your account can see</div></div>
+      <div class="bd">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Connection URL — add this as a connector in your AI assistant</div>
+        <div style="display:flex;gap:8px;margin-bottom:6px">
+          <input #urlInput class="minput" style="flex:1;font-family:monospace;font-size:12px" [value]="mcpUrl" readonly />
+          <button class="pbtn" (click)="copyUrl(urlInput)">{{ copied ? "Copied" : "Copy" }}</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">You'll be asked to sign in and approve access. The assistant can only read what you can — it can't change anything, export, or see other brands' data. Revoke access here any time.</div>
+
+        <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Connected assistants</div>
+        <div *ngIf="loadingApps" style="font-size:12px;color:var(--text-muted)">Loading…</div>
+        <div *ngIf="!loadingApps && !apps.length" style="font-size:12px;color:var(--text-muted)">No assistants connected yet.</div>
+        <div *ngFor="let a of apps" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-weight:600;font-size:13px">{{ a.name }}</div>
+            <div style="font-size:11px;color:var(--text-muted)">Connected {{ fmt(a.createdAt) }}<span *ngIf="a.lastAt"> · last used {{ fmt(a.lastAt) }}</span></div>
+          </div>
+          <button class="pbtn" (click)="revoke(a)" [disabled]="a.revoking">{{ a.revoking ? "Revoking…" : "Revoke" }}</button>
+        </div>
+      </div>
+    </div>
   `,
 })
-export class ProfileComponent {
+export class ProfileComponent implements OnInit {
   private auth = inject(AuthService);
   private vs = inject(VendorAdminService);
+  private http = inject(HttpClient);
 
   session = this.auth.session()!;
   isAdmin = this.session.role === "admin";
@@ -73,7 +104,51 @@ export class ProfileComponent {
   inv = { firstName: "", lastName: "", email: "" };
   inviteErr = ""; inviteMsg = "";
 
+  mcpUrl = API_BASE_URL + "/api/mcp";
+  apps: ConnectedApp[] = [];
+  loadingApps = true;
+  copied = false;
+
   get validInvite(): boolean { return EMAIL_RE.test(this.inv.email.trim()); }
+
+  async ngOnInit(): Promise<void> { await this.loadApps(); }
+
+  /** Load the caller's connected AI assistants (active refresh tokens) from the OAuth store. */
+  async loadApps(): Promise<void> {
+    const t = this.auth.token();
+    if (!t) { this.loadingApps = false; return; }
+    this.loadingApps = true;
+    try {
+      const r = await firstValueFrom(this.http.get<{ mcpUrl?: string; apps?: ConnectedApp[] }>(
+        API_BASE_URL + "/api/oauth?action=connections", { headers: { Authorization: "Bearer " + t } }));
+      if (r?.mcpUrl) this.mcpUrl = r.mcpUrl;
+      this.apps = (r?.apps || []).map((a) => ({ ...a }));
+    } catch { /* leave list empty on error */ }
+    this.loadingApps = false;
+  }
+
+  copyUrl(input: HTMLInputElement): void {
+    try { void navigator.clipboard.writeText(this.mcpUrl); }
+    catch { input.select(); try { document.execCommand("copy"); } catch { /* ignore */ } }
+    this.copied = true;
+    setTimeout(() => (this.copied = false), 1500);
+  }
+
+  async revoke(a: ConnectedApp): Promise<void> {
+    const t = this.auth.token();
+    if (!t) return;
+    a.revoking = true;
+    try {
+      await firstValueFrom(this.http.post(API_BASE_URL + "/api/oauth?action=revoke-app",
+        { tokenId: a.tokenId }, { headers: { Authorization: "Bearer " + t } }));
+      this.apps = this.apps.filter((x) => x.tokenId !== a.tokenId);
+    } catch { a.revoking = false; }
+  }
+
+  fmt(ms: number): string {
+    if (!ms) return "—";
+    return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
 
   saveEmail(): void {
     this.emailMsg = ""; this.emailErr = "";

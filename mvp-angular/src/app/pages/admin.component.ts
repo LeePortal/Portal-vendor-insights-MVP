@@ -1,5 +1,7 @@
 import { Component, inject } from "@angular/core";
 import { CommonModule } from "@angular/common";
+import { HttpClient } from "@angular/common/http";
+import { firstValueFrom } from "rxjs";
 import { ActivityService, VendorEngagement } from "../core/activity.service";
 import { PremiumPlacementSource, PpAdvertiser, PpCampaign } from "../core/premium-placement.source";
 import { VendorAdminService } from "../core/vendor-admin.service";
@@ -7,6 +9,12 @@ import { ActivityEvent } from "../core/models";
 import { fmtDateTime, fmtNumber, relativeTime } from "../core/format";
 import { HBarsComponent, TrendChartComponent } from "../components/charts.component";
 import { RouterLink, ActivatedRoute } from "@angular/router";
+import { AuthService } from "../core/auth.service";
+import { API_BASE_URL } from "../core/app-config";
+
+interface McpTokenRow { tokenId: string; email: string; brand: string; assistant: string; requests: number; lastTs: number; }
+interface UsageRow { email: string; brand: string; ui: number; agent: number; total: number; lastTs: number; }
+interface McpStats { requests: number; tokens: number; users: number; errors: number; daily: { day: number; n: number }[]; topTokens: McpTokenRow[]; topTools: { tool: string; n: number }[]; }
 
 interface UserRow { name: string; email: string; logins: number; views: number; minutes: number; reportsPulled: number; csvExports: number; lastActive: number; }
 
@@ -23,6 +31,7 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
     <div class="tgl" style="margin-bottom:16px">
       <button [class.on]="prod === 'mi'" (click)="prod = 'mi'">Market Insights</button>
       <button [class.on]="prod === 'pp'" (click)="showPp()">Premium Placement</button>
+      <button [class.on]="prod === 'ai'" (click)="showAi()">AI assistants</button>
     </div>
 
     <div *ngIf="prod === 'mi'">
@@ -195,6 +204,75 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
         </ng-container>
       </div>
     </div>
+
+    <div *ngIf="prod === 'ai'">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;flex-wrap:wrap">
+        <p class="muted" style="font-size:13px;margin:0;max-width:660px">Activity from AI assistants connected through the Portal MCP endpoint. Each assistant signs in as a specific user and can only read that user's permitted data — the same brand, category and state scope as their dashboard. (Logins and report pulls in the other tabs are the dashboard UI.)</p>
+        <div class="tgl">
+          <button *ngFor="let r of aiRanges" [class.on]="aiDays === r.d" (click)="setAiDays(r.d)">{{ r.l }}</button>
+        </div>
+      </div>
+
+      <div *ngIf="aiConfigured === false" class="pcard" style="border:1px solid #ff5000;background:var(--accent-soft);margin-bottom:16px">
+        <div class="bd" style="font-size:13px;color:#ff5000">No request log is configured. Set <b>POSTGRES_URL</b> and MCP usage will populate here.</div>
+      </div>
+
+      <ng-container *ngIf="aiConfigured !== false">
+        <div class="grid c4" style="margin-bottom:16px">
+          <div class="pcard kpi"><div class="label">Agent requests</div><div class="value">{{ n(aiStats?.requests || 0) }}</div><div class="delta flat">via MCP · {{ aiRangeLabel }}</div></div>
+          <div class="pcard kpi"><div class="label">Connected assistants</div><div class="value">{{ n(aiStats?.tokens || 0) }}</div><div class="delta flat">distinct access tokens</div></div>
+          <div class="pcard kpi"><div class="label">Active users</div><div class="value">{{ n(aiStats?.users || 0) }}</div><div class="delta flat">with agent activity</div></div>
+          <div class="pcard kpi"><div class="label">Errors</div><div class="value">{{ n(aiStats?.errors || 0) }}</div><div class="delta flat">failed calls (4xx/5xx)</div></div>
+        </div>
+
+        <div class="grid c2">
+          <div class="pcard span2"><div class="hd"><div class="t">Daily agent requests</div><div class="s">MCP tool calls per day · {{ aiRangeLabel }}</div></div>
+            <div class="bd"><app-trend [points]="aiDailyPoints" [gridlines]="true"></app-trend></div>
+          </div>
+
+          <div class="pcard"><div class="hd"><div class="t">Top tools</div><div class="s">Most-called MCP tools</div></div>
+            <div class="bd">
+              <div *ngIf="!toolRows.length" class="muted" style="font-size:13px">No tool calls yet.</div>
+              <app-hbars *ngIf="toolRows.length" [rows]="toolRows" [money]="false"></app-hbars>
+            </div>
+          </div>
+
+          <div class="pcard"><div class="hd"><div class="t">Per-user activity</div><div class="s">Dashboard (UI) vs assistant (agent) pulls · {{ aiRangeLabel }}</div></div>
+            <div class="bd" style="max-height:340px;overflow:auto">
+              <div *ngIf="!aiUsage.length" class="muted" style="font-size:13px">No activity in range.</div>
+              <table class="ptbl" *ngIf="aiUsage.length">
+                <thead><tr><th>User</th><th>Brand</th><th class="num">UI</th><th class="num">Agent</th><th class="num">Total</th><th class="num">Last</th></tr></thead>
+                <tbody>
+                  <tr *ngFor="let u of aiUsage">
+                    <td>{{ u.email }}</td><td class="muted">{{ u.brand || "—" }}</td>
+                    <td class="num">{{ n(u.ui) }}</td><td class="num">{{ n(u.agent) }}</td><td class="num">{{ n(u.total) }}</td>
+                    <td class="num muted">{{ u.lastTs ? rel(u.lastTs) : "—" }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="pcard span2"><div class="hd"><div class="t">Connected assistants</div><div class="s">Active tokens by request volume · most recent first</div></div>
+            <div class="bd" style="max-height:420px;overflow:auto">
+              <div *ngIf="!aiTokens.length" class="muted" style="font-size:13px">No assistants have connected yet.</div>
+              <table class="ptbl" *ngIf="aiTokens.length">
+                <thead><tr><th>Assistant</th><th>User</th><th>Brand</th><th class="num">Requests</th><th class="num">Last used</th></tr></thead>
+                <tbody>
+                  <tr *ngFor="let t of aiTokens">
+                    <td style="font-weight:600">{{ t.assistant || "—" }}</td>
+                    <td>{{ t.email || "—" }}</td>
+                    <td class="muted">{{ t.brand || "—" }}</td>
+                    <td class="num">{{ n(t.requests) }}</td>
+                    <td class="num muted">{{ t.lastTs ? rel(t.lastTs) : "—" }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </ng-container>
+    </div>
   `,
 })
 export class AdminComponent {
@@ -202,6 +280,8 @@ export class AdminComponent {
   private va = inject(VendorAdminService);
   private pp = inject(PremiumPlacementSource);
   private route = inject(ActivatedRoute);
+  private http = inject(HttpClient);
+  private auth = inject(AuthService);
 
   summary = this.activity.getSummary(30);
   topDashRows = this.activity.getTopDashboards(30).map((d) => ({ label: d.name, value: d.views }));
@@ -211,7 +291,17 @@ export class AdminComponent {
 
   ranges = [{ k: "all", l: "All time" }, { k: "ytd", l: "YTD" }, { k: "mtd", l: "MTD" }, { k: "wtd", l: "WTD" }, { k: "custom", l: "Custom" }];
   rangeKey = "all";
-  prod: "mi" | "pp" = "mi";  // which product line's activity is shown
+  prod: "mi" | "pp" | "ai" = "mi";  // which product line's activity is shown
+
+  // ---- AI assistants (MCP) monitoring ----
+  aiRanges = [{ d: 7, l: "7d" }, { d: 30, l: "30d" }, { d: 90, l: "90d" }];
+  aiDays = 30;
+  aiLoading = false;
+  aiConfigured: boolean | null = null;
+  aiStats: McpStats | null = null;
+  aiUsage: UsageRow[] = [];
+  aiDailyPoints: { label: string; value: number }[] = [];
+  private aiLoaded = false;
   // Premium Placement (Spotlight live from AdButler via /api/adbutler; Featured Products = placeholder 0 for now)
   ppPeriod: "mtd" | "lastmonth" | "custom" = "mtd";
   ppFrom = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
@@ -269,6 +359,30 @@ export class AdminComponent {
   }
   label(t: string): string {
     return { login: "Login", dashboard_view: "Viewed", report_pull: "Report", csv_export: "CSV" }[t] || t;
+  }
+
+  // ---- AI assistants (MCP) monitoring ----
+  get aiRangeLabel(): string { return "last " + this.aiDays + " days"; }
+  get aiTokens(): McpTokenRow[] { return this.aiStats?.topTokens || []; }
+  get toolRows(): { label: string; value: number }[] { return (this.aiStats?.topTools || []).map((t) => ({ label: t.tool, value: t.n })); }
+
+  showAi(): void { this.prod = "ai"; if (!this.aiLoaded) { this.aiLoaded = true; this.loadAi(); } }
+  setAiDays(d: number): void { this.aiDays = d; this.loadAi(); }
+  async loadAi(): Promise<void> {
+    const t = this.auth.token();
+    if (!t) { this.aiConfigured = false; return; }
+    this.aiLoading = true;
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    const from = ymd(new Date(Date.now() - this.aiDays * 86400000)), to = ymd(new Date());
+    try {
+      const r = await firstValueFrom(this.http.get<{ configured: boolean; mcp: McpStats | null; usage: UsageRow[] }>(
+        API_BASE_URL + "/api/admin-usage?from=" + from + "&to=" + to, { headers: { Authorization: "Bearer " + t } }));
+      this.aiConfigured = r.configured;
+      this.aiStats = r.mcp;
+      this.aiUsage = r.usage || [];
+      this.aiDailyPoints = (r.mcp?.daily || []).map((p) => ({ label: new Date(p.day * 86400000).toISOString().slice(5, 10), value: p.n }));
+    } catch { this.aiConfigured = false; }
+    this.aiLoading = false;
   }
 
   // ---- Premium Placement (admin view) ----

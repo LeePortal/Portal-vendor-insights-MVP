@@ -15,7 +15,7 @@
  * assistant name). So an OAuth-issued token works on /api/mcp and downstream with zero changes.
  */
 const crypto = require("crypto");
-const { sign } = require("../lib/auth");
+const { sign, authClaims } = require("../lib/auth");
 const identity = require("../lib/identity");
 const db = require("../lib/db");
 
@@ -99,6 +99,21 @@ module.exports = async (req, res) => {
     }
     if (action === "meta-prm") {
       return res.status(200).json({ resource: base + "/api/mcp", authorization_servers: [base] });
+    }
+
+    // ---- Self-service connected-assistants (Profile UI) — authed with the user's Portal session token ----
+    if (action === "connections") {
+      const claims = authClaims(req);
+      if (!claims) return res.status(401).json({ error: "Unauthorized" });
+      return res.status(200).json({ mcpUrl: base + "/api/mcp", apps: await db.listConnectedApps(claims.email) });
+    }
+    if (action === "revoke-app") {
+      if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+      const claims = authClaims(req);
+      if (!claims) return res.status(401).json({ error: "Unauthorized" });
+      const body = await readBody(req);
+      await db.revokeTokenForUser(claims.email, body.tokenId || ""); // scoped to owner — can't revoke others'
+      return res.status(200).json({ ok: true });
     }
 
     // ---- Dynamic client registration ----
