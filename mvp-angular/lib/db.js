@@ -59,6 +59,15 @@ function ensureReady() {
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logos (logo_key TEXT PRIMARY KEY, data_url TEXT NOT NULL)`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logins (email TEXT PRIMARY KEY, last_at BIGINT, count INTEGER NOT NULL DEFAULT 0)`);
     await p.query(`CREATE TABLE IF NOT EXISTS pp_brand_map (advertiser_id TEXT PRIMARY KEY, brands JSONB NOT NULL DEFAULT '[]')`);
+    // Server-side request log — the source of truth for the admin usage/MCP monitoring widgets. Written by
+    // the API/MCP layer (a human dashboard load is source='ui'; an agent tool call is source='agent').
+    await p.query(`CREATE TABLE IF NOT EXISTS request_log (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      ts BIGINT NOT NULL, email TEXT, brand TEXT,
+      source TEXT NOT NULL DEFAULT 'ui', assistant TEXT, token_id TEXT,
+      tool TEXT, params JSONB, rows INTEGER, latency_ms INTEGER, status INTEGER)`);
+    await p.query(`CREATE INDEX IF NOT EXISTS request_log_ts_idx ON request_log (ts)`);
+    await p.query(`CREATE INDEX IF NOT EXISTS request_log_email_idx ON request_log (email)`);
     const { rows } = await p.query("SELECT COUNT(*)::int AS n FROM vendor_users");
     if (!rows[0].n) await replaceAll(buildSeed());
     await ensureDemo(p).catch((e) => console.error("ensureDemo:", (e && e.message) || e)); // idempotent demo-account top-up
@@ -254,4 +263,73 @@ async function setPpBrandMap(advertiserId, brands) {
     [id, J(list)]);
 }
 
-module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, createSignupUser, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, isConfigured: () => !!CONN };
+/** Append one request to the log. Fire-and-forget; never throws into the request path. */
+async function logRequest(e) {
+  if (!CONN) return;
+  try {
+    await ensureReady();
+    await pool().query(
+      `INSERT INTO request_log (ts, email, brand, source, assistant, token_id, tool, params, rows, latency_ms, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [Number(e.ts) || Date.now(), e.email || null, e.brand || null, e.source || "ui", e.assistant || null, e.tokenId || null,
+       e.tool || null, e.params != null ? JSON.stringify(e.params) : null,
+       e.rows == null ? null : Number(e.rows), e.latencyMs == null ? null : Number(e.latencyMs), e.status == null ? null : Number(e.status)]);
+  } catch (err) { console.error("logRequest:", (err && err.message) || err); }
+}
+
+/** Per-user pull counts over [from,to], split by source (ui vs agent). For the admin usage widget. */
+async function usageByUser(fromTs, toTs) {
+  await ensureReady();
+  const r = await pool().query(
+    `SELECT email, MAX(brand) AS brand,
+            COUNT(*) FILTER (WHERE source='ui')    AS ui,
+            COUNT(*) FILTER (WHERE source='agent') AS agent,
+            COUNT(*) AS total, MAX(ts) AS last_ts
+     FROM request_log WHERE ts >= $1 AND ts < $2 AND email IS NOT NULL
+     GROUP BY email ORDER BY total DESC`, [Number(fromTs) || 0, Number(toTs) || Date.now()]);
+  return r.rows.map((x) => ({ email: x.email, brand: x.brand || "", ui: Number(x.ui), agent: Number(x.agent), total: Number(x.total), lastTs: Number(x.last_ts) || 0 }));
+}
+
+/** Agent/MCP monitoring aggregates over [from,to]: KPIs, daily counts, top tokens, top tools. */
+async function mcpStats(fromTs, toTs) {
+  await ensureReady();
+  const p = pool();
+  const a = [Number(fromTs) || 0, Number(toTs) || Date.now()];
+  const [kpi, daily, tokens, tools] = await Promise.all([
+    p.query(`SELECT COUNT(*) AS requests, COUNT(DISTINCT token_id) AS tokens, COUNT(DISTINCT email) AS users,
+                    COUNT(*) FILTER (WHERE status >= 400) AS errors
+             FROM request_log WHERE source='agent' AND ts >= $1 AND ts < $2`, a),
+    p.query(`SELECT (ts/86400000) AS day, COUNT(*) AS n FROM request_log
+             WHERE source='agent' AND ts >= $1 AND ts < $2 GROUP BY 1 ORDER BY 1`, a),
+    p.query(`SELECT token_id, MAX(email) AS email, MAX(brand) AS brand, MAX(assistant) AS assistant,
+                    COUNT(*) AS requests, MAX(ts) AS last_ts
+             FROM request_log WHERE source='agent' AND ts >= $1 AND ts < $2 AND token_id IS NOT NULL
+             GROUP BY token_id ORDER BY requests DESC LIMIT 20`, a),
+    p.query(`SELECT tool, COUNT(*) AS n FROM request_log
+             WHERE source='agent' AND ts >= $1 AND ts < $2 AND tool IS NOT NULL
+             GROUP BY tool ORDER BY n DESC LIMIT 12`, a),
+  ]);
+  const k = kpi.rows[0] || {};
+  return {
+    requests: Number(k.requests) || 0, tokens: Number(k.tokens) || 0, users: Number(k.users) || 0, errors: Number(k.errors) || 0,
+    daily: daily.rows.map((d) => ({ day: Number(d.day), n: Number(d.n) })),
+    topTokens: tokens.rows.map((t) => ({ tokenId: t.token_id, email: t.email || "", brand: t.brand || "", assistant: t.assistant || "", requests: Number(t.requests), lastTs: Number(t.last_ts) || 0 })),
+    topTools: tools.rows.map((t) => ({ tool: t.tool, n: Number(t.n) })),
+  };
+}
+
+/** Recent individual requests (for the drill-down that shows the tool-call text). */
+async function recentRequests({ source, tokenId, email, limit } = {}) {
+  await ensureReady();
+  const where = ["1=1"]; const vals = [];
+  if (source) { vals.push(source); where.push(`source = $${vals.length}`); }
+  if (tokenId) { vals.push(tokenId); where.push(`token_id = $${vals.length}`); }
+  if (email) { vals.push(String(email).toLowerCase()); where.push(`email = $${vals.length}`); }
+  vals.push(Math.min(Number(limit) || 50, 200));
+  const r = await pool().query(
+    `SELECT ts, email, brand, source, assistant, token_id, tool, params, rows, latency_ms, status
+     FROM request_log WHERE ${where.join(" AND ")} ORDER BY ts DESC LIMIT $${vals.length}`, vals);
+  return r.rows.map((x) => ({ ts: Number(x.ts), email: x.email || "", brand: x.brand || "", source: x.source, assistant: x.assistant || "", tokenId: x.token_id || "", tool: x.tool || "", params: x.params || null, rows: x.rows == null ? null : Number(x.rows), latencyMs: x.latency_ms == null ? null : Number(x.latency_ms), status: x.status == null ? null : Number(x.status) }));
+}
+
+module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, createSignupUser, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, logRequest, usageByUser, mcpStats, recentRequests, isConfigured: () => !!CONN };
