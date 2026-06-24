@@ -94,6 +94,7 @@ type Period = "mtd" | "lastmonth" | "custom";
                 <div class="aimetrics">
                   <div class="stat"><div class="v">{{ n(cr.impressions) }}</div><div class="l">Impressions</div></div>
                   <div class="stat"><div class="v">{{ n(cr.clicks) }}</div><div class="l">Clicks</div></div>
+                  <div class="stat"><div class="v" style="font-size:15px;display:flex;align-items:center;gap:6px">{{ startedLabel(cr) }}<span *ngIf="isStale(cr)" title="This ad is over 6 months old — refresh the creative" style="cursor:help;display:inline-flex"><svg width="15" height="15" viewBox="0 0 24 24" role="img" aria-label="Over 6 months old"><path d="M12 3 L22 20 H2 Z" fill="#f6c343" stroke="#b8860b" stroke-width="1.2" stroke-linejoin="round"></path><rect x="11" y="9" width="2" height="6" rx="1" fill="#5c4500"></rect><circle cx="12" cy="17" r="1.2" fill="#5c4500"></circle></svg></span></div><div class="l">Ad started</div></div>
                 </div>
               </div>
             </div>
@@ -110,6 +111,12 @@ type Period = "mtd" | "lastmonth" | "custom";
 export class CampaignLandingComponent implements OnInit {
   lightbox: string | null = null;
   openLightbox(url: string): void { this.lightbox = url; }
+
+  private parseDate(s: string): Date | null { if (!s) return null; const d = new Date(String(s).replace(" ", "T")); return isNaN(d.getTime()) ? null : d; }
+  /** "Ad started" date label for an ad-item (its AdButler created_date). */
+  startedLabel(cr: PpCreative): string { const d = this.parseDate(cr.createdDate); return d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"; }
+  /** Flag an ACTIVE ad-item whose creative is over 6 months old (refresh recommended). Expired ads are never flagged. */
+  isStale(cr: PpCreative): boolean { if (!cr.active) return false; const d = this.parseDate(cr.createdDate); if (!d) return false; const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 6); return d.getTime() < cutoff.getTime(); }
 
   private route = inject(ActivatedRoute);
   private pp = inject(PremiumPlacementSource);
