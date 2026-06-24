@@ -68,6 +68,23 @@ export class AuthService {
 
   token(): string { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } }
 
+  /** Subscription status from the session window (authoritative — set by /api/session at login). Admins are
+   *  always active. Returns "none" when the session carries no window (synthetic/demo mode), so callers can
+   *  apply a local fallback. Single source of truth for the Market Insights + Premium Placement gates. */
+  subStatus(): "active" | "expired" | "scheduled" | "suspended" | "none" {
+    const s = this.session();
+    if (!s) return "none";
+    if (s.role === "admin") return "active";
+    if (s.suspended) return "suspended";
+    if (s.subStart || s.subEnd) {
+      const now = Date.now();
+      if (s.subStart && now < new Date(s.subStart + "T00:00:00").getTime()) return "scheduled";
+      if (s.subEnd && now > new Date(s.subEnd + "T23:59:59").getTime()) return "expired";
+      return "active";
+    }
+    return "none";
+  }
+
   private establish(u: DemoUser | undefined, email: string, token: string, scope?: Partial<Session>): Session {
     const base: Session = u ? { email: u.email, name: u.name, role: u.role, vendorId: u.vendorId } : { email, name: email, role: "vendor" };
     const session: Session = { ...base, ...(scope || {}) };

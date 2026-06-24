@@ -355,12 +355,23 @@ export class DashboardComponent implements OnInit {
       this.ownBrand = this.viewAs;
       this.restrictParents = this.session.allowedParents ?? this.va.getUser(this.session.email)?.parents ?? [];
     }
+    // Subscription gate FIRST: if the vendor isn't active, never fetch — the shell's lock screen covers the page,
+    // and skipping the load is what stops any data from rendering/flashing behind it.
+    if (this.locked) { this.loading = false; this.firstLoad = false; return; }
     this.selectAllCats();
     this.rebuild(true);
     if (!this.isAdmin) this.src.dealersSpeccing(this.ownBrand).then((d) => (this.specDealers = d)).catch(() => {});
   }
 
   get parentOptions(): string[] { return this.an.visibleParentsFor(this.viewAs, this.restrictParents, this.dataMode === "api"); }
+  /** Subscription gate, same source of truth as the shell (auth.subStatus + synthetic-mode fallback). When true
+   *  the vendor's window isn't active, so ngOnInit skips every fetch and the shell shows the lock screen. */
+  get locked(): boolean {
+    if (this.isAdmin) return false;
+    const st = this.auth.subStatus();
+    const eff = st === "none" ? this.va.statusOf(this.session.email) : st;
+    return eff !== "active";
+  }
   /** Brand the per-brand widgets (displacement / funnel brand line) represent: focal for admins, own brand for vendors. */
   get focusBrand(): string { return this.isAdmin ? this.viewAs : this.ownBrand; }
   /** Per-user control visibility (USER_PERMISSIONS keys). Admins see every control; for a vendor a perm

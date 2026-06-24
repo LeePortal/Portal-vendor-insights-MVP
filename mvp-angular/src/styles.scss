@@ -176,7 +176,7 @@ table.ptbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pcard { position: relative; }
 .widget-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 900; }
 .widget-expanded { position: fixed !important; inset: 4% 5% !important; z-index: 901 !important; margin: 0 !important; max-height: 92vh; overflow: auto !important; box-shadow: 0 24px 70px rgba(0,0,0,.35); }
-.lock-overlay { position: absolute; inset: 0; z-index: 30; display: flex; align-items: flex-start; justify-content: center; padding-top: 80px; background: rgba(246,246,247,0.55); }
+.lock-overlay { position: absolute; inset: 0; z-index: 30; display: flex; align-items: flex-start; justify-content: center; padding-top: 80px; background: var(--bg, #f6f6f7); } /* opaque: the dashboard never loads behind the lock, so show a clean screen */
 .lock-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 30px rgba(0,0,0,.15); padding: 28px 32px; text-align: center; max-width: 420px; }
 .lock-card mat-icon { color: var(--accent); font-size: 40px; width: 40px; height: 40px; }
 .lock-card h3 { font-size: 18px; margin: 10px 0 6px; }

@@ -89,16 +89,8 @@ export class AppShellComponent {
    *  to the client store only in synthetic mode (no session window). Replaces the old client-only check, which
    *  read a stale local cache as "expired" for vendors. */
   get subStatus(): "active" | "expired" | "scheduled" | "suspended" | "none" {
-    if (this.isAdmin) return "active";
-    const s = this.session;
-    if (s.suspended) return "suspended";
-    if (s.subStart || s.subEnd) {
-      const now = Date.now();
-      if (s.subStart && now < new Date(s.subStart + "T00:00:00").getTime()) return "scheduled";
-      if (s.subEnd && now > new Date(s.subEnd + "T23:59:59").getTime()) return "expired";
-      return "active";
-    }
-    return this.va.statusOf(s.email); // synthetic / no window in session
+    const st = this.auth.subStatus(); // shared source of truth (the dashboard's load gate uses the same)
+    return st === "none" ? this.va.statusOf(this.session.email) : st; // local store only as a synthetic-mode fallback
   }
   /** Only the data dashboards (Market Insights + Premium Placement) gate on subscription; Home and Profile are
    *  always reachable so a vendor can land and navigate regardless of subscription state. */
