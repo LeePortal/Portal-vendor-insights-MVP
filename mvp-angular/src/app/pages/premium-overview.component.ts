@@ -76,6 +76,18 @@ type Status = "all" | "active" | "expired";
 
     <div *ngIf="!ppConfigured && !loading && hasScope" class="pcard" style="border:1px solid #ff5000;background:var(--accent-soft);margin-bottom:16px"><div class="bd" style="font-size:13px;color:#ff5000">AdButler isn't connected yet — Spotlight impressions and clicks will populate once it is.</div></div>
 
+    <div class="dash-wrap">
+      <div *ngIf="loading && firstLoad">
+        <div class="kgrid">
+          <div class="pcard kpi" *ngFor="let s of [1,2,3,4,5]"><div class="sk" style="height:12px;width:55%;margin-bottom:14px"></div><div class="sk" style="height:24px;width:70%"></div></div>
+        </div>
+        <div class="pcard"><div class="sk" style="height:14px;width:30%;margin-bottom:18px"></div><div class="sk" style="height:120px"></div></div>
+      </div>
+      <ng-container *ngIf="!(loading && firstLoad)">
+        <div *ngIf="loading" class="upd-pill"><span class="upd-dot"></span> Updating…</div>
+        <div *ngIf="loading" class="upd-overlay"><div class="upd-spinner"></div></div>
+        <div class="dash-body" [class.updating]="loading">
+
     <div class="kgrid">
       <div class="pcard kpi"><div class="label">Impressions</div><div class="value">{{ hasScope && ppConfigured ? n(impressions) : "—" }}</div><div class="delta flat">Spotlight · selected period</div></div>
       <div class="pcard kpi"><div class="label">Clicks</div><div class="value">{{ hasScope && ppConfigured ? n(clicks) : "—" }}</div><div class="delta flat">Spotlight · selected period</div></div>
@@ -89,7 +101,6 @@ type Status = "all" | "active" | "expired";
       <div class="bd">
         <div *ngIf="isAdmin && !brandId" class="muted" style="font-size:13px">Select a brand to view its Premium Placement performance.</div>
         <ng-container *ngIf="hasScope">
-          <div *ngIf="loading" class="muted" style="font-size:13px">Loading…</div>
           <div *ngIf="!loading && ppConfigured && !advertiserName" class="muted" style="font-size:13px">No Spotlight advertiser is matched to {{ isAdmin ? "that brand" : "your company" }} yet.</div>
           <div *ngIf="!loading && advertiserName && !shown.length" class="muted" style="font-size:13px">No {{ status === 'all' ? '' : status }} ad items for this period.</div>
           <div class="aigrid">
@@ -113,6 +124,9 @@ type Status = "all" | "active" | "expired";
         </ng-container>
       </div>
     </div>
+        </div>
+      </ng-container>
+    </div>
 
     <div *ngIf="lightbox" class="lbx" (click)="lightbox = null" title="Click to close">
       <img [src]="lightbox" alt="Ad creative, full size" />
@@ -127,6 +141,7 @@ export class PremiumOverviewComponent implements OnInit {
   session = this.auth.session();
   isAdmin = this.session?.role === "admin";
   loading = true;
+  firstLoad = true;
   ppConfigured = true;
   advertiserName = "";
   impressions = 0;
@@ -212,6 +227,7 @@ export class PremiumOverviewComponent implements OnInit {
       this.kpis = perf ? perf.kpis : null;
     } finally {
       this.loading = false;
+      this.firstLoad = false;
     }
   }
 }

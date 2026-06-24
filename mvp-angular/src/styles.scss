@@ -292,6 +292,17 @@ table.ptbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 @keyframes skl { 100% { transform: translateX(100%); } }
 .skl-sm { height: 12px; width: 55%; }
 .skl-lg { height: 26px; width: 72%; }
+
+/* ---- Dashboard loading (first-load skeleton + "Updating…" overlay) — shared by Market Insights and Premium Placement ---- */
+@keyframes dashspin { to { transform: rotate(360deg); } }
+@keyframes dashpulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.dash-wrap { position: relative; }
+.dash-body.updating { opacity: .4; pointer-events: none; transition: opacity .2s; }
+.upd-overlay { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding-top: 90px; z-index: 5; }
+.upd-spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: #ff5000; border-radius: 50%; animation: dashspin .8s linear infinite; }
+.upd-pill { position: absolute; top: 0; left: 50%; transform: translateX(-50%); background: var(--accent-soft); color: #ff5000; font-size: 12px; font-weight: 600; padding: 5px 14px; border-radius: 999px; z-index: 6; display: inline-flex; gap: 7px; align-items: center; }
+.upd-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff5000; animation: dashpulse 1s ease-in-out infinite; }
+.sk { background: var(--border); border-radius: 6px; animation: dashpulse 1.1s ease-in-out infinite; display: block; }
 .skl-chart { height: 220px; width: 100%; }
 .skl-row { height: 18px; width: 100%; margin: 9px 0; }
 

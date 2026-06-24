@@ -136,6 +136,18 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
         <div class="bd" style="font-size:13px;color:#ff5000">AdButler isn't connected yet. Set <b>ADBUTLER_API_KEY</b> in the environment and this page will populate with live Spotlight impressions, clicks and advertisers.</div>
       </div>
 
+      <div class="dash-wrap">
+        <div *ngIf="ppLoading && ppFirstLoad">
+          <div class="grid c4" style="margin-bottom:16px">
+            <div class="pcard" *ngFor="let s of [1,2,3]"><div class="sk" style="height:12px;width:55%;margin-bottom:14px"></div><div class="sk" style="height:24px;width:75%"></div></div>
+          </div>
+          <div class="pcard"><div class="sk" style="height:14px;width:35%;margin-bottom:18px"></div><div class="sk" style="height:14px;margin-bottom:12px" *ngFor="let s of [1,2,3,4,5]"></div></div>
+        </div>
+        <ng-container *ngIf="!(ppLoading && ppFirstLoad)">
+          <div *ngIf="ppLoading" class="upd-pill"><span class="upd-dot"></span> Updating…</div>
+          <div *ngIf="ppLoading" class="upd-overlay"><div class="upd-spinner"></div></div>
+          <div class="dash-body" [class.updating]="ppLoading">
+
       <div class="grid c4" style="margin-bottom:16px">
         <div class="pcard kpi"><div class="label">Ad impressions</div><div class="value">{{ ppConfigured ? n(ppTotalImpressions) : "—" }}</div><div class="delta flat">Spotlight (live) · Featured pending</div></div>
         <div class="pcard kpi"><div class="label">Clicks</div><div class="value">{{ ppConfigured ? n(ppTotalClicks) : "—" }}</div><div class="delta flat">Spotlight (live) · Featured pending</div></div>
@@ -147,7 +159,6 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
       <div class="pcard" *ngIf="ppConfigured">
         <div class="hd"><div class="t">Campaigns by company</div><div class="s">Click a company to see its campaigns · {{ ppCompanyGroups.length }} {{ ppStatus === 'active' ? 'active' : ppStatus === 'expired' ? 'expired' : '' }} compan{{ ppCompanyGroups.length === 1 ? 'y' : 'ies' }} · impressions &amp; clicks for the selected period</div></div>
         <div class="bd" style="max-height:520px;overflow:auto">
-          <div *ngIf="ppLoading" class="muted" style="font-size:13px">Loading…</div>
           <div *ngIf="!ppLoading && !ppCompanyGroups.length" class="muted" style="font-size:13px">No companies match the current filters.</div>
           <table class="ptbl" *ngIf="!ppLoading && ppCompanyGroups.length">
             <thead><tr><th>Company</th><th class="num">Campaigns</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
@@ -179,6 +190,9 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
           </table>
         </div>
       </div>
+          </div>
+        </ng-container>
+      </div>
     </div>
   `,
 })
@@ -208,6 +222,7 @@ export class AdminComponent {
   ppAllCampaigns: PpCampaign[] = [];
   ppConfigured = true;
   ppLoading = false;
+  ppFirstLoad = true;
   ppFeaturedImpressions = 0; ppFeaturedClicks = 0; // TODO: Featured Products — fold in once its data source exists
   private ppLoaded = false;
   cStart = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
@@ -302,6 +317,6 @@ export class AdminComponent {
       const c = await this.pp.campaigns(from, to);
       this.ppConfigured = c.configured;
       this.ppAllCampaigns = c.campaigns;
-    } finally { this.ppLoading = false; }
+    } finally { this.ppLoading = false; this.ppFirstLoad = false; }
   }
 }
