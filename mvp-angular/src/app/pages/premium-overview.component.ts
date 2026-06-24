@@ -54,14 +54,19 @@ type Status = "all" | "active" | "expired";
       <p>{{ (isAdmin ? redshiftBrand : ownBrand) || (isAdmin ? "Admin preview — pick a brand to scope this view" : "Your Spotlight advertising performance") }}</p>
     </div>
 
-    <div *ngIf="ppLocked" class="pcard" style="max-width:540px;margin:48px auto;text-align:center;padding:34px 28px">
+    <div *ngIf="gating" class="pcard" style="max-width:540px;margin:48px auto;text-align:center;padding:40px 28px">
+      <div class="upd-spinner" style="margin:0 auto 16px"></div>
+      <p class="muted" style="font-size:13px;margin:0">Loading your Premium Placement dashboard…</p>
+    </div>
+
+    <div *ngIf="!gating && ppLocked" class="pcard" style="max-width:540px;margin:48px auto;text-align:center;padding:34px 28px">
       <mat-icon style="font-size:40px;width:40px;height:40px;color:var(--text-muted)">lock</mat-icon>
       <h3 style="margin:14px 0 6px">No active Premium Placement campaign</h3>
       <p class="muted" style="font-size:13px;margin:0 auto 20px;max-width:380px">You don't have an active Spotlight campaign right now. Contact your Portal account manager to start advertising on Portal.</p>
       <a routerLink="/" class="pbtn">&larr; Back to Home</a>
     </div>
 
-    <ng-container *ngIf="!ppLocked">
+    <ng-container *ngIf="!gating && !ppLocked">
     <div class="filterbar" style="align-items:flex-end">
       <div class="filt" *ngIf="isAdmin"><label>Brand</label>
         <select class="minput" (change)="onBrand($any($event.target).value)">
@@ -255,8 +260,14 @@ export class PremiumOverviewComponent implements OnInit {
 
   /** Whether the view is scoped to a single brand yet (always true for vendors; true for admins once they pick). */
   get hasScope(): boolean { return !this.isAdmin || !!this.brandId; }
-  /** PP "subscription" gate: a vendor with no active campaign (no ad-item served this month) is locked out. */
-  get ppLocked(): boolean { return !this.isAdmin && !this.loading && !this.adItems.some((c) => c.active); }
+  /** True while a vendor's FIRST load is still resolving the gate. We must fetch the overview to know whether
+   *  they have an active campaign, so during that fetch we show a neutral loader — never the dashboard or the
+   *  lock — so no real data can flash before the gate is decided. */
+  get gating(): boolean { return !this.isAdmin && this.firstLoad; }
+  /** PP "subscription" gate: a vendor with no active campaign (no ad-item served this month) is locked out.
+   *  Keyed off firstLoad (not loading) so the decision is made the instant the first load resolves and holds
+   *  steady through later filter reloads — the lock is evaluated BEFORE the dashboard ever renders. */
+  get ppLocked(): boolean { return !this.isAdmin && !this.firstLoad && !this.adItems.some((c) => c.active); }
   get activeCount(): number { return this.adItems.filter((c) => c.active).length; }
   get shown(): PpCreative[] {
     return this.adItems.filter((c) => (this.status === "all" ? true : this.status === "active" ? c.active : !c.active));
