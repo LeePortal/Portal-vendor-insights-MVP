@@ -85,6 +85,44 @@ function pickImageUrl(o) {
 }
 const bannerCampId = (b) => String(b.campaign != null ? b.campaign : (b.campaign_id != null ? b.campaign_id : (b.campaignId != null ? b.campaignId : "")));
 
+// First month (>= 2023-01) in which the advertiser(s) served any impressions — the "advertising start".
+// AdButler retains several years; we scan from 2023-01 forward (year-coarse, then month-fine) and cache it,
+// since the start only moves forward and the scan is several API calls. Returns "YYYY-MM" (or "" if never served).
+const _startCache = new Map();
+const START_TTL = 1000 * 60 * 60 * 12; // 12h
+async function firstServedMonth(advIds) {
+  const set = new Set([...advIds].map(String));
+  const key = [...set].sort().join(",");
+  const hit = _startCache.get(key);
+  if (hit && Date.now() - hit.at < START_TTL) return hit.start;
+  const rangeImpr = async (from, to) => {
+    const r = await ab("/reports", { type: "advertiser", period: "month", from, to }).catch(() => ({}));
+    let n = 0; for (const row of (r.data || [])) if (set.has(String(row.id))) n += num((row.summary || {}).impressions);
+    return n;
+  };
+  const now = new Date(), curY = now.getUTCFullYear(), curM = now.getUTCMonth() + 1;
+  let start = "";
+  // Year scan (parallel) → first year with impressions.
+  const years = []; for (let y = 2023; y <= curY; y++) years.push(y);
+  const yearImpr = await Promise.all(years.map((y) => rangeImpr(iso(y + "-01-01"), iso(y + "-12-31", true))));
+  const fyIdx = yearImpr.findIndex((n) => n > 0);
+  if (fyIdx >= 0) {
+    const firstYear = years[fyIdx];
+    const lastM = firstYear === curY ? curM : 12;
+    const months = []; for (let m = 1; m <= lastM; m++) months.push(m);
+    // Month scan within that year (parallel) → first month with impressions.
+    const monthImpr = await Promise.all(months.map((m) => {
+      const mm = String(m).padStart(2, "0");
+      const lastDay = String(new Date(Date.UTC(firstYear, m, 0)).getUTCDate()).padStart(2, "0");
+      return rangeImpr(iso(firstYear + "-" + mm + "-01"), iso(firstYear + "-" + mm + "-" + lastDay, true));
+    }));
+    const fmIdx = monthImpr.findIndex((n) => n > 0);
+    start = firstYear + "-" + String(fmIdx >= 0 ? months[fmIdx] : 1).padStart(2, "0");
+  }
+  _startCache.set(key, { at: Date.now(), start });
+  return start;
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -299,7 +337,8 @@ module.exports = async (req, res) => {
         .sort((a, b) => String(b.createdDate).localeCompare(String(a.createdDate)));
       const impressions = adItems.reduce((s, c) => s + c.impressions, 0);
       const clicks = adItems.reduce((s, c) => s + c.clicks, 0);
-      return res.status(200).json({ configured: true, advertiserName: advName, impressions, clicks, adItems });
+      const advertisingStart = await firstServedMonth(advIds).catch(() => ""); // "YYYY-MM" — first month served since 2023
+      return res.status(200).json({ configured: true, advertiserName: advName, advertisingStart, impressions, clicks, adItems });
     }
 
     return res.status(400).json({ error: "Unknown action" });

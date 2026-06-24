@@ -47,7 +47,7 @@ type Status = "all" | "active" | "expired";
   template: `
     <div class="page-head">
       <h1>Premium Placement</h1>
-      <p>{{ advertiserName || (isAdmin ? "Admin preview — pick a brand to scope this view" : "Your Spotlight advertising performance") }}</p>
+      <p>{{ advertiserName || (isAdmin ? "Admin preview — pick a brand to scope this view" : "Your Spotlight advertising performance") }}<span *ngIf="startLabel"> &middot; advertising since {{ startLabel }}</span></p>
     </div>
 
     <div class="filterbar" style="align-items:flex-end">
@@ -178,6 +178,7 @@ export class PremiumOverviewComponent implements OnInit {
   firstLoad = true;
   ppConfigured = true;
   advertiserName = "";
+  advertisingStart = "";  // "YYYY-MM" — first month the brand served impressions (since 2023)
   impressions = 0;
   clicks = 0;
   adItems: PpCreative[] = [];
@@ -227,6 +228,13 @@ export class PremiumOverviewComponent implements OnInit {
   sortDealers(k: "name" | "state" | "new"): void { if (this.dealerSort === k) this.dealerDir *= -1; else { this.dealerSort = k; this.dealerDir = k === "new" ? -1 : 1; } }
   dealerArrow(k: "name" | "state" | "new"): string { return this.dealerSort === k ? (this.dealerDir > 0 ? "▲" : "▼") : ""; }
   get dealerBrandLabel(): string { return this.isAdmin ? (this.redshiftBrand || this.brandName || "this brand") : "your brand"; }
+  /** "2026-04" -> "Apr 2026" for the advertising-since label. */
+  get startLabel(): string {
+    const m = /^(\d{4})-(\d{2})$/.exec(this.advertisingStart);
+    if (!m) return "";
+    const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1] || "";
+    return mon ? mon + " " + m[1] : "";
+  }
   /** New-dealers widget data — filter-independent, so loaded separately from load() (on init / brand pick). */
   async loadDealers(): Promise<void> {
     const brand = this.isAdmin ? this.redshiftBrand : "";
@@ -311,6 +319,7 @@ export class PremiumOverviewComponent implements OnInit {
       ]);
       this.ppConfigured = ov.configured;
       this.advertiserName = ov.advertiserName;
+      this.advertisingStart = ov.advertisingStart;
       this.impressions = ov.impressions;
       this.clicks = ov.clicks;
       this.adItems = ov.adItems;

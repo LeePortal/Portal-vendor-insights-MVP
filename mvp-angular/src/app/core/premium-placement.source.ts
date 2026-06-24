@@ -69,12 +69,12 @@ export class PremiumPlacementSource {
 
   /** VENDOR-FACING overview: the caller's own advertiser (matched by company name server-side) — its ad-items
    *  across all campaigns with per-item impressions/clicks + active, plus aggregate impressions/clicks. */
-  async overview(from: string, to: string, advertiserId = ""): Promise<{ configured: boolean; advertiserName: string; impressions: number; clicks: number; adItems: PpCreative[] }> {
+  async overview(from: string, to: string, advertiserId = ""): Promise<{ configured: boolean; advertiserName: string; advertisingStart: string; impressions: number; clicks: number; adItems: PpCreative[] }> {
     const q = "?action=overview&from=" + from + "&to=" + to + (advertiserId ? "&advertiserId=" + encodeURIComponent(advertiserId) : "");
     try {
-      const r = await firstValueFrom(this.http.get<{ configured: boolean; advertiserName?: string; impressions?: number; clicks?: number; adItems?: PpCreative[] }>(this.base + q, { headers: this.hdr() }));
-      return { configured: !!(r && r.configured), advertiserName: (r && r.advertiserName) || "", impressions: (r && r.impressions) || 0, clicks: (r && r.clicks) || 0, adItems: (r && r.adItems) || [] };
-    } catch { return { configured: false, advertiserName: "", impressions: 0, clicks: 0, adItems: [] }; }
+      const r = await firstValueFrom(this.http.get<{ configured: boolean; advertiserName?: string; advertisingStart?: string; impressions?: number; clicks?: number; adItems?: PpCreative[] }>(this.base + q, { headers: this.hdr() }));
+      return { configured: !!(r && r.configured), advertiserName: (r && r.advertiserName) || "", advertisingStart: (r && r.advertisingStart) || "", impressions: (r && r.impressions) || 0, clicks: (r && r.clicks) || 0, adItems: (r && r.adItems) || [] };
+    } catch { return { configured: false, advertiserName: "", advertisingStart: "", impressions: 0, clicks: 0, adItems: [] }; }
   }
 
   /** All Spotlight campaigns (every advertiser) with owning company, active/expired state, and period impressions/clicks. */
