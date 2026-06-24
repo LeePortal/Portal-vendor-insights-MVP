@@ -13,6 +13,8 @@ import { fmtCompact, fmtNumber } from "../core/format";
 interface Kp { label: string; value: string; yoy: number; }
 interface PropCard { label: string; count: number | null; yoy: number; }
 interface SkuRow { brand: string; model: string; category: string; sales: string; share: string; units: string; avg: string; }
+interface BrandRow { brand: string; sales: string; share: string; yoy: string; }
+interface SwitchRow { product: string; to: string; units: string; }
 
 /**
  * Home hub.
@@ -101,34 +103,56 @@ interface SkuRow { brand: string; model: string; category: string; sales: string
         </a>
       </div>
 
-      <div *ngIf="isFree" class="pcard tz-wrap">
-        <div class="hd"><div class="t">Top selling SKUs</div><div class="s">Best-selling products across the Portal network — the view subscribers get</div></div>
-        <div class="bd">
-          <div *ngIf="skuLoading" style="padding:4px 0" aria-label="Loading">
-            <div class="hsk" style="height:30px;width:100%;margin-bottom:10px;border-radius:4px"></div>
-            <div class="hsk" *ngFor="let s of [1,2,3,4,5]" style="height:26px;width:100%;margin-bottom:8px;border-radius:4px"></div>
+      <ng-container *ngIf="isFree">
+        <div class="pcard tz-banner">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:15px;font-weight:600;color:var(--text)">Unlock the full Market Insights view</div>
+              <div style="font-size:12.5px;color:var(--text-muted);margin-top:2px;max-width:520px">You're exploring on a free account. Subscribe to reveal sales, share, competitive switches and trends across the Portal network.</div>
+            </div>
+            <button class="pbtn primary" (click)="subscribe()" style="flex:0 0 auto">{{ subscribed ? "Thanks — we'll be in touch" : "Subscribe to unlock" }}</button>
           </div>
-          <ng-container *ngIf="!skuLoading">
-            <table class="ptbl" style="width:100%">
+        </div>
+
+        <div class="pcard tz-card2">
+          <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><div class="t">Top selling SKUs</div><div class="s">Best-selling products across the Portal network</div></div><span class="tz-chip"><mat-icon>lock</mat-icon> Locked</span></div>
+          <div class="bd">
+            <div *ngIf="teaserLoading" class="tz-skel"><div class="hsk" style="height:28px;margin-bottom:9px"></div><div class="hsk" *ngFor="let s of [1,2,3,4,5]" style="height:24px;margin-bottom:8px"></div></div>
+            <table *ngIf="!teaserLoading" class="ptbl" style="width:100%">
               <thead><tr><th>#</th><th>Brand</th><th>Model</th><th>Category</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num"># Units</th><th class="num">Avg Sell $</th></tr></thead>
               <tbody class="tz-blur">
-                <tr *ngFor="let r of teaserSkus; let i = index">
-                  <td class="muted">{{ i + 1 }}</td><td style="font-weight:600">{{ r.brand }}</td><td>{{ r.model }}</td><td class="muted">{{ r.category }}</td>
-                  <td class="num">{{ r.sales }}</td><td class="num">{{ r.share }}</td><td class="num">{{ r.units }}</td><td class="num">{{ r.avg }}</td>
-                </tr>
+                <tr *ngFor="let r of teaserSkus; let i = index"><td class="muted">{{ i + 1 }}</td><td style="font-weight:600">{{ r.brand }}</td><td>{{ r.model }}</td><td class="muted">{{ r.category }}</td><td class="num">{{ r.sales }}</td><td class="num">{{ r.share }}</td><td class="num">{{ r.units }}</td><td class="num">{{ r.avg }}</td></tr>
               </tbody>
             </table>
-            <div class="tz-ov">
-              <div class="tz-card">
-                <mat-icon style="color:var(--accent);font-size:38px;width:38px;height:38px">lock</mat-icon>
-                <h3 style="margin:8px 0 4px;font-size:16px">Unlock the full SKU view</h3>
-                <p class="muted" style="font-size:12.5px;margin:0 auto 14px;max-width:320px">See the top-selling products, category share, and pricing across the Portal network with a Market Insights subscription.</p>
-                <button class="pbtn primary" (click)="subscribe()">{{ subscribed ? "Thanks — we'll be in touch" : "Subscribe to unlock" }}</button>
-              </div>
-            </div>
-          </ng-container>
+          </div>
         </div>
-      </div>
+
+        <div class="pcard tz-card2">
+          <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><div class="t">Top 10 brands</div><div class="s">Ranked by network sales · trailing 12 months</div></div><span class="tz-chip"><mat-icon>lock</mat-icon> Locked</span></div>
+          <div class="bd">
+            <div *ngIf="teaserLoading" class="tz-skel"><div class="hsk" style="height:28px;margin-bottom:9px"></div><div class="hsk" *ngFor="let s of [1,2,3,4]" style="height:24px;margin-bottom:8px"></div></div>
+            <table *ngIf="!teaserLoading" class="ptbl" style="width:100%">
+              <thead><tr><th style="width:32px">#</th><th>Brand</th><th class="num">Total Sales</th><th class="num">$ Share %</th><th class="num">YoY</th></tr></thead>
+              <tbody>
+                <tr *ngFor="let b of teaserBrands; let i = index"><td class="muted">{{ i + 1 }}</td><td style="font-weight:600">{{ b.brand }}</td><td class="num"><span class="tz-blur">{{ b.sales }}</span></td><td class="num"><span class="tz-blur">{{ b.share }}</span></td><td class="num"><span class="tz-blur">{{ b.yoy }}</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="pcard tz-card2">
+          <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><div class="t">Who's replacing whom</div><div class="s">Competitive switches in your category · last 90 days</div></div><span class="tz-chip"><mat-icon>lock</mat-icon> Locked</span></div>
+          <div class="bd">
+            <div *ngIf="teaserLoading" class="tz-skel"><div class="hsk" style="height:28px;margin-bottom:9px"></div><div class="hsk" *ngFor="let s of [1,2,3]" style="height:24px;margin-bottom:8px"></div></div>
+            <table *ngIf="!teaserLoading" class="ptbl" style="width:100%">
+              <thead><tr><th>Product</th><th>Switched to</th><th class="num">Units</th></tr></thead>
+              <tbody>
+                <tr *ngFor="let s of teaserSwitches"><td>{{ s.product }}</td><td><span class="tz-blur">{{ s.to }}</span></td><td class="num"><span class="tz-blur">{{ s.units }}</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </ng-container>
     </ng-container>
   `,
   styles: [`
@@ -138,10 +162,12 @@ interface SkuRow { brand: string; model: string; category: string; sales: string
     .st-green { background:#1d9e75; } .st-amber { background:#f0a000; } .st-red { background:#d85a30; }
     .kgrid3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
     @media (max-width:760px) { .kgrid3 { grid-template-columns:1fr; } }
-    .tz-wrap .bd { position:relative; }
-    .tz-blur { filter:blur(5px); user-select:none; pointer-events:none; }
-    .tz-ov { position:absolute; left:0; right:0; bottom:0; top:40px; display:flex; align-items:center; justify-content:center; text-align:center; background:transparent; }
-    .tz-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.15); padding:22px 26px; max-width:380px; }
+    .tz-banner { background:var(--accent-soft, #fff3ee); border:1px solid var(--accent); margin-bottom:14px; }
+    .tz-card2 { margin-bottom:14px; }
+    .tz-skel { padding:4px 0; }
+    .tz-blur { filter:blur(4px); user-select:none; pointer-events:none; }
+    .tz-chip { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--accent); border:1px solid var(--accent); border-radius:999px; padding:3px 9px; white-space:nowrap; flex:0 0 auto; }
+    .tz-chip mat-icon { font-size:14px; width:14px; height:14px; }
   `],
 })
 export class HomeComponent implements OnInit {
@@ -165,14 +191,33 @@ export class HomeComponent implements OnInit {
   n = fmtNumber;
   propCards: PropCard[] = [{ label: "Submitted", count: null, yoy: 0 }, { label: "Accepted", count: null, yoy: 0 }, { label: "Completed", count: null, yoy: 0 }];
   subscribed = false;
-  skuLoading = true; // brief faux "fetching" delay on the teaser so it feels like real data is loading
-  // Representative teaser rows — intentionally NOT real data (the panel is blurred to entice a subscription).
+  teaserLoading = true; // brief faux "fetching" delay on the teasers so they feel like real data loading
+  // Representative teaser rows — intentionally NOT real data (the values are blurred to entice a subscription).
   teaserSkus: SkuRow[] = [
     { brand: "Sonos", model: "Era 300", category: "Speakers", sales: "$1.42M", share: "8.1%", units: "3,120", avg: "$455" },
     { brand: "Denon", model: "AVR-X3800H", category: "Receivers", sales: "$1.18M", share: "6.7%", units: "980", avg: "$1,204" },
     { brand: "Klipsch", model: "RP-8060FA", category: "Speakers", sales: "$0.97M", share: "5.5%", units: "1,640", avg: "$591" },
     { brand: "Origin", model: "D90", category: "Architectural", sales: "$0.81M", share: "4.6%", units: "2,210", avg: "$366" },
     { brand: "Marantz", model: "Cinema 50", category: "Receivers", sales: "$0.74M", share: "4.2%", units: "620", avg: "$1,193" },
+  ];
+  teaserBrands: BrandRow[] = [
+    { brand: "Sonos", sales: "$4.2M", share: "12.4%", yoy: "+8%" },
+    { brand: "Denon", sales: "$3.8M", share: "11.1%", yoy: "+3%" },
+    { brand: "Klipsch", sales: "$3.1M", share: "9.0%", yoy: "+14%" },
+    { brand: "Bose", sales: "$2.7M", share: "7.9%", yoy: "-2%" },
+    { brand: "Marantz", sales: "$2.2M", share: "6.4%", yoy: "+6%" },
+    { brand: "Yamaha", sales: "$1.9M", share: "5.6%", yoy: "+1%" },
+    { brand: "Polk Audio", sales: "$1.6M", share: "4.7%", yoy: "+9%" },
+    { brand: "Definitive Technology", sales: "$1.3M", share: "3.8%", yoy: "-4%" },
+    { brand: "JBL", sales: "$1.1M", share: "3.2%", yoy: "+5%" },
+    { brand: "Episode", sales: "$0.9M", share: "2.6%", yoy: "+11%" },
+  ];
+  teaserSwitches: SwitchRow[] = [
+    { product: "8\" in-ceiling speaker", to: "Brand Alpha", units: "214" },
+    { product: "7.2 AV receiver", to: "Brand Bravo", units: "156" },
+    { product: "Outdoor subwoofer", to: "Brand Charlie", units: "98" },
+    { product: "Soundbar", to: "Brand Delta", units: "71" },
+    { product: "Architectural amplifier", to: "Brand Echo", units: "63" },
   ];
 
   dataMode = DATA_MODE;
@@ -217,7 +262,7 @@ export class HomeComponent implements OnInit {
 
   /** Vendor / free-signup: platform-wide proposal activity (not brand-specific). */
   private async loadVendor(): Promise<void> {
-    if (this.isFree) setTimeout(() => { this.skuLoading = false; }, 1200); // faux fetch delay on the teaser table
+    if (this.isFree) setTimeout(() => { this.teaserLoading = false; }, 1200); // faux fetch delay on the teaser widgets
     try {
       const r = await this.src.platformStats();
       const by: Record<string, { count: number; yoy: number }> = {};

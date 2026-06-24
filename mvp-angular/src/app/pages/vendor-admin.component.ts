@@ -66,6 +66,25 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
       </div>
     </div>
 
+    <div class="pcard" style="margin-top:16px">
+      <div class="hd"><div class="t">Self-service sign-ups <span class="muted" style="font-weight:400">({{ vs.freeSignups().length }})</span></div><div class="s">Free accounts created from the public signup form. Open one to convert it to a subscriber.</div></div>
+      <div class="bd">
+        <table class="ptbl">
+          <thead><tr><th>User</th><th>Company</th><th>Signed up</th><th>Account</th><th></th></tr></thead>
+          <tbody>
+            <tr *ngFor="let u of vs.freeSignups()" [routerLink]="['/admin/vendors/user', u.email]" style="cursor:pointer">
+              <td style="font-weight:600">{{ u.name }}<div class="muted" style="font-size:11px">{{ u.email }}</div></td>
+              <td class="muted">{{ u.companyName || '—' }}</td>
+              <td class="muted">{{ u.createdAt ? (u.createdAt | date:'mediumDate') : '—' }}</td>
+              <td><span class="sub-badge" [ngClass]="u.suspended ? 'expired' : 'active'">{{ u.suspended ? 'Suspended' : 'Active' }}</span></td>
+              <td class="num" style="color:var(--accent);font-weight:600">View →</td>
+            </tr>
+            <tr *ngIf="!vs.freeSignups().length"><td colspan="5" class="muted">No self-service sign-ups yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Add / Edit Company modal -->
     <div *ngIf="showCompany" class="dl-modal">
       <div class="vm-card">

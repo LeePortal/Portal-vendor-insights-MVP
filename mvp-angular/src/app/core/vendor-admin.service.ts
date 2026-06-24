@@ -148,6 +148,9 @@ export class VendorAdminService {
   /* users */
   listUsers(): VUser[] { return this.state.users; }
   usersForCompany(name: string): VUser[] { return this.state.users.filter((u) => u.companyName === name); }
+  /** Self-service free accounts (no company subscription row), so the admin Vendors page can list them on
+   *  their own — they're created with a typed company that has no vendor_companies row to group them under. */
+  freeSignups(): VUser[] { return this.state.users.filter((u) => u.freeSignup); }
   usersForBrandName(brand: string): VUser[] { return this.state.users.filter((u) => u.brands.includes(brand)); }
   getUser(email: string): VUser | undefined { return this.state.users.find((u) => u.email.toLowerCase() === email.toLowerCase()); }
   addUser(u: { firstName: string; lastName: string; email: string; companyName: string; brands: string[]; perms: Record<string, boolean>; parents?: string[]; subs?: string[]; buyingGroups?: string[]; states?: string[]; subscriptions?: string[]; createdBy?: string }): void {
