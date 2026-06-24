@@ -15,7 +15,7 @@ import { VendorAdminService } from "../core/vendor-admin.service";
         <div>
           <img *ngIf="!logoFailed" src="https://portal.io/assets/images/logo-index.png" (error)="logoFailed = true" alt="Portal" style="max-width:120px;margin-bottom:22px" />
           <div *ngIf="logoFailed" style="font-weight:800;font-size:22px;margin-bottom:22px">Portal<span style="color:var(--accent)">.</span></div>
-          <div class="lead">Market Insights</div>
+          <div class="lead">Vendor Services</div>
           <div class="sub">The performance data behind every Portal proposal — for your brand.</div>
         </div>
         <div class="sub" style="opacity:.7">MVP prototype · sample data</div>
@@ -58,7 +58,7 @@ export class LoginComponent {
   private buildDemo(): { name: string; email: string; role: string; status: string }[] {
     const out: { name: string; email: string; role: string; status: string }[] = [];
     for (const u of this.auth.demoUsers) if (u.role === "admin") out.push({ name: u.name, email: u.email, role: u.role, status: "" });
-    for (const id of ["sonos", "klipsch", "luma"]) {
+    for (const id of ["origin", "sonos", "klipsch", "luma"]) {
       const u = this.auth.demoUsers.find((x) => x.vendorId === id);
       if (u) out.push({ name: u.name, email: u.email, role: u.role, status: this.vs.statusOf(u.email) });
     }
