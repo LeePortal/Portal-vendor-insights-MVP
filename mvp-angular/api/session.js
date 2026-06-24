@@ -69,7 +69,7 @@ module.exports = async (req, res) => {
           const found = await db.getUserForLogin(e);
           if (found) {
             const eff = db.effective(found.user, found.company);
-            claims = { email: e, role: "vendor", brand: eff.brand, allowedParents: eff.allowedParents, allowedSubs: eff.allowedSubs, allowedStates: eff.allowedStates, allowedBrands: eff.allowedBrands, perms: eff.perms };
+            claims = { email: e, role: "vendor", brand: eff.brand, allowedParents: eff.allowedParents, allowedSubs: eff.allowedSubs, allowedStates: eff.allowedStates, allowedBrands: eff.allowedBrands, perms: eff.perms, freeSignup: !!found.user.freeSignup };
             sub = { start: (found.company && found.company.start) || "", end: (found.company && found.company.end) || "", suspended: !!eff.suspended };
             await db.recordLogin(e).catch(() => {}); // REAL usage data; the client ActivityService is only a synthetic fallback
           }
@@ -92,7 +92,7 @@ module.exports = async (req, res) => {
     if (claims.role === "vendor" && db.isConfigured()) {
       try { logo = await db.getLogo(LOGO_KEY_BY_BRAND[claims.brand] || claims.brand); } catch (e) { logo = ""; }
     }
-    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates, allowedBrands: claims.allowedBrands, perms: claims.perms, logo, subStart: sub.start, subEnd: sub.end, suspended: sub.suspended });
+    res.status(200).json({ token, role: claims.role, brand: claims.brand, allowedParents: claims.allowedParents, allowedSubs: claims.allowedSubs, allowedStates: claims.allowedStates, allowedBrands: claims.allowedBrands, perms: claims.perms, logo, subStart: sub.start, subEnd: sub.end, suspended: sub.suspended, freeSignup: !!claims.freeSignup });
   } catch (e) {
     res.status(500).json({ error: String((e && e.message) || e) });
   }

@@ -35,6 +35,8 @@ import { VendorAdminService } from "../core/vendor-admin.service";
             <a (click)="forgot()" style="color:var(--accent);cursor:pointer">Forgot password?</a>
             <a (click)="emailCode()" style="color:var(--accent);cursor:pointer">Email me a login code</a>
           </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:18px 0;color:var(--text-muted);font-size:11px"><span style="flex:1;height:1px;background:var(--border)"></span>NEW TO PORTAL<span style="flex:1;height:1px;background:var(--border)"></span></div>
+          <button type="button" (click)="goSignup()" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-weight:700;cursor:pointer">Create a free account</button>
           <div class="demo">
             <div class="muted" style="font-size:12px;margin-bottom:8px">Demo accounts — password <code (click)="password = 'demo'">demo</code> (click to fill):</div>
             <div class="row" *ngFor="let d of demo"><span class="muted">{{ d.name }}<span *ngIf="d.role === 'admin'" class="tag" style="margin-left:6px;background:#eceef3;color:#4b4f57">Portal admin</span><span *ngIf="d.status && d.status !== 'active'" class="sub-badge" [ngClass]="d.status" style="margin-left:6px">{{ d.status }}</span></span><code (click)="fill(d.email)">{{ d.email }}</code></div>
@@ -67,6 +69,7 @@ export class LoginComponent {
 
   private validEmail(): boolean { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(this.email.trim()); }
   fill(email: string): void { this.email = email; this.password = "demo"; this.error = ""; this.notice = ""; }
+  goSignup(): void { this.router.navigateByUrl("/signup"); }
   async submit(): Promise<void> {
     const s = await this.auth.login(this.email, this.password);
     if (!s) { this.error = "Invalid email or password."; this.notice = ""; return; }

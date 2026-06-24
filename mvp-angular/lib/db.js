@@ -53,7 +53,9 @@ function ensureReady() {
       brands JSONB NOT NULL DEFAULT '[]', perms JSONB NOT NULL DEFAULT '{}', suspended BOOLEAN NOT NULL DEFAULT false,
       parents JSONB NOT NULL DEFAULT '[]', subs JSONB NOT NULL DEFAULT '[]', buying_groups JSONB NOT NULL DEFAULT '[]',
       states JSONB NOT NULL DEFAULT '[]', subscriptions JSONB NOT NULL DEFAULT '[]',
-      created_by TEXT, created_at BIGINT)`);
+      created_by TEXT, created_at BIGINT, free_signup BOOLEAN NOT NULL DEFAULT false)`);
+    // Existing DBs: add the self-signup flag if the table predates it (no-op once present).
+    await p.query(`ALTER TABLE vendor_users ADD COLUMN IF NOT EXISTS free_signup BOOLEAN NOT NULL DEFAULT false`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logos (logo_key TEXT PRIMARY KEY, data_url TEXT NOT NULL)`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logins (email TEXT PRIMARY KEY, last_at BIGINT, count INTEGER NOT NULL DEFAULT 0)`);
     await p.query(`CREATE TABLE IF NOT EXISTS pp_brand_map (advertiser_id TEXT PRIMARY KEY, brands JSONB NOT NULL DEFAULT '[]')`);
@@ -73,6 +75,7 @@ function rowToUser(r) {
     brands: A(r.brands), perms: r.perms || {}, suspended: !!r.suspended,
     parents: A(r.parents), subs: A(r.subs), buyingGroups: A(r.buying_groups), states: A(r.states),
     subscriptions: A(r.subscriptions), createdBy: r.created_by || "", createdAt: r.created_at ? Number(r.created_at) : undefined,
+    freeSignup: !!r.free_signup,
   };
 }
 
@@ -112,11 +115,11 @@ async function replaceAll(data) {
     for (const u of users) {
       await client.query(
         `INSERT INTO vendor_users (email, first_name, last_name, name, company_name, brands, perms, suspended,
-           parents, subs, buying_groups, states, subscriptions, created_by, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+           parents, subs, buying_groups, states, subscriptions, created_by, created_at, free_signup)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [String(u.email || "").toLowerCase(), u.firstName || "", u.lastName || "", u.name || u.email, u.companyName || "",
          J(u.brands), JSON.stringify(u.perms || {}), !!u.suspended, J(u.parents), J(u.subs), J(u.buyingGroups), J(u.states),
-         J(u.subscriptions), u.createdBy || "", u.createdAt || null]);
+         J(u.subscriptions), u.createdBy || "", u.createdAt || null, !!u.freeSignup]);
     }
     for (const k of Object.keys(logos)) {
       await client.query("INSERT INTO vendor_logos (logo_key, data_url) VALUES ($1,$2)", [k, logos[k]]);
@@ -162,6 +165,27 @@ async function getUserForLogin(email) {
   const cr = await p.query("SELECT * FROM vendor_companies WHERE name = $1", [user.companyName]);
   const company = cr.rows.length ? rowToCompany(cr.rows[0]) : null;
   return { user, company };
+}
+
+/**
+ * Self-serve signup: create a free-signup account (free_signup=true, no subscription/brands). Returns
+ * { created:false } without touching anything if the email already exists, so a real subscriber's
+ * account can never be downgraded by someone signing up with their address.
+ */
+async function createSignupUser({ email, firstName, lastName, company }) {
+  await ensureReady();
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) throw new Error("email required");
+  const p = pool();
+  const existing = await p.query("SELECT 1 FROM vendor_users WHERE email = $1", [e]);
+  if (existing.rows.length) return { created: false, email: e };
+  const name = ((firstName || "") + " " + (lastName || "")).trim() || e;
+  await p.query(
+    `INSERT INTO vendor_users (email, first_name, last_name, name, company_name, brands, perms, suspended,
+       parents, subs, buying_groups, states, subscriptions, created_by, created_at, free_signup)
+     VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'{}'::jsonb,false,'[]'::jsonb,'[]'::jsonb,'[]'::jsonb,'[]'::jsonb,'[]'::jsonb,$6,$7,true)`,
+    [e, firstName || "", lastName || "", name, company || "", "self-signup", Date.now()]);
+  return { created: true, email: e, name, company: company || "" };
 }
 
 /** Record a successful login — REAL usage data. Kept in its own table so the admin UI's whole-dataset
@@ -230,4 +254,4 @@ async function setPpBrandMap(advertiserId, brands) {
     [id, J(list)]);
 }
 
-module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, isConfigured: () => !!CONN };
+module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, createSignupUser, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, isConfigured: () => !!CONN };

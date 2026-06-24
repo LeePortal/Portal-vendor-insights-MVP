@@ -15,6 +15,7 @@ export interface Session {
   subStart?: string;           // company subscription window (authoritative, from /api/session) — drives the shell lock
   subEnd?: string;
   suspended?: boolean;
+  freeSignup?: boolean;        // self-serve free account (no subscription) — gets the teaser Home, not the subscriber Home
 }
 
 export interface Vendor {

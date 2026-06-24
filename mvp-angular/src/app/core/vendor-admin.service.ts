@@ -27,6 +27,7 @@ export interface VUser {
   subscriptions: string[];  // dashboard ids this user is subscribed to
   createdBy?: string;       // who created this user (email/name)
   createdAt?: number;       // epoch ms when created
+  freeSignup?: boolean;     // self-serve free account (no subscription) — shown the teaser Home, not the dashboards
 }
 
 interface AdminState { companies: Company[]; users: VUser[]; logos: Record<string, string>; logins?: Record<string, { count: number; last: number }>; }
@@ -170,6 +171,7 @@ export class VendorAdminService {
   }
   deleteUser(email: string): void { this.state.users = this.state.users.filter((u) => u.email.toLowerCase() !== email.toLowerCase()); this.persist(); }
   setSuspended(email: string, val: boolean): void { const u = this.getUser(email); if (u) { u.suspended = val; this.persist(); } }
+  setFreeSignup(email: string, val: boolean): void { const u = this.getUser(email); if (u) { u.freeSignup = val; this.persist(); } }
   toggleSubscription(email: string, id: string): void {
     const u = this.getUser(email); if (!u) return;
     const i = u.subscriptions.indexOf(id);

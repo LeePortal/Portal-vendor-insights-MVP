@@ -55,15 +55,31 @@ export class AuthService {
     const u = this.demoUsers.find((x) => x.email.toLowerCase() === e);
     if (DATA_MODE === "api") {
       try {
-        const r = await firstValueFrom(this.http.post<{ token: string; allowedParents?: string[]; allowedSubs?: string[]; allowedStates?: string[]; allowedBrands?: string[]; perms?: Record<string, boolean>; logo?: string; subStart?: string; subEnd?: string; suspended?: boolean }>(API_BASE_URL + "/api/session", { email: e, password }));
+        const r = await firstValueFrom(this.http.post<{ token: string; allowedParents?: string[]; allowedSubs?: string[]; allowedStates?: string[]; allowedBrands?: string[]; perms?: Record<string, boolean>; logo?: string; subStart?: string; subEnd?: string; suspended?: boolean; freeSignup?: boolean }>(API_BASE_URL + "/api/session", { email: e, password }));
         if (!r || !r.token) return null;
-        return this.establish(u, e, r.token, { allowedParents: r.allowedParents || [], allowedSubs: r.allowedSubs || [], allowedStates: r.allowedStates || [], allowedBrands: r.allowedBrands || [], perms: r.perms || {}, logo: r.logo || "", subStart: r.subStart || "", subEnd: r.subEnd || "", suspended: !!r.suspended });
+        return this.establish(u, e, r.token, { allowedParents: r.allowedParents || [], allowedSubs: r.allowedSubs || [], allowedStates: r.allowedStates || [], allowedBrands: r.allowedBrands || [], perms: r.perms || {}, logo: r.logo || "", subStart: r.subStart || "", subEnd: r.subEnd || "", suspended: !!r.suspended, freeSignup: !!r.freeSignup });
       } catch {
         return null;
       }
     }
     if (!u || password !== u.password) return null;
     return this.establish(u, e, "");
+  }
+
+  /** Self-serve signup: creates a free account server-side, then establishes the session (auto sign-in).
+   *  Returns an error string on failure (e.g. the email already has an account). */
+  async signup(data: { firstName: string; lastName: string; company: string; email: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const e = data.email.trim().toLowerCase();
+    try {
+      const r = await firstValueFrom(this.http.post<{ token?: string; name?: string; freeSignup?: boolean }>(
+        API_BASE_URL + "/api/signup",
+        { firstName: data.firstName.trim(), lastName: data.lastName.trim(), company: data.company.trim(), email: e }));
+      if (!r || !r.token) return { ok: false, error: "Couldn't create your account. Please try again." };
+      this.establish(undefined, e, r.token, { name: r.name || e, role: "vendor", allowedParents: [], allowedSubs: [], allowedStates: [], allowedBrands: [], perms: {}, logo: "", subStart: "", subEnd: "", suspended: false, freeSignup: true });
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: (err && err.error && err.error.error) || "Couldn't create your account. Please try again." };
+    }
   }
 
   token(): string { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } }

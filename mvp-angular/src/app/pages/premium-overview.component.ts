@@ -60,7 +60,7 @@ type Status = "all" | "active" | "expired";
     </div>
 
     <div *ngIf="!gating && ppLocked" class="pcard" style="max-width:540px;margin:48px auto;text-align:center;padding:34px 28px">
-      <mat-icon style="font-size:40px;width:40px;height:40px;color:var(--text-muted)">lock</mat-icon>
+      <mat-icon style="font-size:40px;width:40px;height:40px;color:var(--accent)">lock</mat-icon>
       <h3 style="margin:14px 0 6px">No active Premium Placement campaign</h3>
       <p class="muted" style="font-size:13px;margin:0 auto 20px;max-width:380px">You don't have an active Spotlight campaign right now. Contact your Portal account manager to start advertising on Portal.</p>
       <a routerLink="/" class="pbtn">&larr; Back to Home</a>

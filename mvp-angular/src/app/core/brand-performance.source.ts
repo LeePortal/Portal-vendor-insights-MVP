@@ -84,6 +84,18 @@ export class BrandPerformanceSource {
     return this.an.dealersSpeccingSynthetic(brand);
   }
 
+  /** Network-wide proposal activity (Submitted/Accepted/Completed + YoY) for the Home page. Aggregate,
+   *  non-brand, non-dealer — available to any signed-in user (subscriber or free-signup). */
+  async platformStats(): Promise<{ configured: boolean; statuses: { key: string; count: number; yoy: number }[] }> {
+    if (DATA_MODE === "api") {
+      try {
+        const r = await firstValueFrom(this.http.get<{ configured?: boolean; statuses?: { key: string; count: number; yoy: number }[] }>(API_BASE_URL + "/api/platform-stats", { headers: this.authHeader() }));
+        return { configured: !!(r && r.configured), statuses: (r && r.statuses) || [] };
+      } catch { return { configured: false, statuses: [] }; }
+    }
+    return { configured: true, statuses: [{ key: "Submitted", count: 48210, yoy: 6.2 }, { key: "Accepted", count: 19540, yoy: 4.1 }, { key: "Completed", count: 12880, yoy: 9.8 }] };
+  }
+
   /** Build the exact payload from the in-browser generator (also documents the API contract). */
   private synthetic(f: BrandPerfFilter): BrandPerfPayload {
     return {

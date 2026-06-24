@@ -28,10 +28,12 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
           <h1>{{ u.name }}</h1>
           <p>{{ u.email }} · {{ u.companyName }}
             <span class="sub-badge" [ngClass]="u.suspended ? 'expired' : 'active'" style="margin-left:6px">{{ u.suspended ? "Suspended" : "Active" }}</span>
+            <span *ngIf="u.freeSignup" class="sub-badge scheduled" style="margin-left:6px">Free account</span>
           </p>
         </div>
         <div style="display:flex;gap:8px">
           <button class="pbtn" (click)="resetPw()">Reset password</button>
+          <button class="pbtn" [class.primary]="u.freeSignup" (click)="toggleFreeSignup()" title="Free accounts see the teaser Home (platform activity only), not the subscriber dashboards">{{ u.freeSignup ? "Convert to subscriber" : "Mark as free account" }}</button>
           <button class="pbtn" [class.primary]="u.suspended" (click)="toggleSuspend()">{{ u.suspended ? "Reactivate" : "Suspend" }}</button>
         </div>
       </div>
@@ -170,4 +172,5 @@ export class UserDetailComponent implements OnInit {
   toggleSub(id: string): void { this.va.toggleSubscription(this.email, id); this.user = this.va.getUser(this.email); }
   resetPw(): void { alert("Password reset email sent to " + this.email + " (demo). The real account-setup/confirmation email flow is flagged for the dev team."); }
   toggleSuspend(): void { if (this.user) { this.va.setSuspended(this.user.email, !this.user.suspended); this.user = this.va.getUser(this.email); } }
+  toggleFreeSignup(): void { if (this.user) { this.va.setFreeSignup(this.user.email, !this.user.freeSignup); this.user = this.va.getUser(this.email); } }
 }

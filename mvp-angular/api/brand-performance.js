@@ -147,6 +147,9 @@ module.exports = async (req, res) => {
 
     const claims = authClaims(req);
     if (!claims) return res.status(401).json({ error: "Unauthorized" });
+    // Free-signup accounts have no Market Insights subscription — they only get the teaser Home. Block the
+    // full MI data endpoint server-side so a free token can't pull it directly (UI already gates the page).
+    if (claims.freeSignup) return res.status(403).json({ error: "A Market Insights subscription is required." });
     const tenant = resolveTenant(claims, req);
     const f = reqFilters(req);
     const agg = AGG[f.agg] ? f.agg : "monthly";
