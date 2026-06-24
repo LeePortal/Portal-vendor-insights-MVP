@@ -93,11 +93,13 @@ module.exports = async (req, res) => {
     if (!process.env.AUTH_SECRET) return res.status(500).json({ error: "Auth is not configured." });
     const claims = authClaims(req);
     if (!claims) return res.status(401).json({ error: "Unauthorized" });
-    if (claims.role !== "admin") return res.status(403).json({ error: "Admin only (vendor-scoped Premium Placement comes with the advertiser view)." });
-    if (!KEY) return res.status(200).json({ configured: false });
 
     const q = req.query || {};
     const action = String(q.action || "summary");
+    // Admin actions are admin-only. `overview` is the vendor-facing advertiser view, scoped server-side to
+    // the caller's OWN company (matched by name) — never to a client-supplied id — so any authenticated vendor may call it.
+    if (claims.role !== "admin" && action !== "overview") return res.status(403).json({ error: "Admin only." });
+    if (!KEY) return res.status(200).json({ configured: false });
 
     if (action === "advertisers") {
       const rows = await abPages("/advertisers");
@@ -218,6 +220,47 @@ module.exports = async (req, res) => {
         creatives,
       };
       return res.status(200).json(out);
+    }
+
+    if (action === "overview") {
+      // VENDOR-FACING: scope to the caller's own advertiser, matched by NAME against their token's company/brand
+      // (claims.brand + allowedBrands). Returns the advertiser's ad-items (across all its campaigns) with
+      // per-item impressions/clicks + active, plus aggregate impressions/clicks. The advertiser is derived from
+      // the token, NOT from any client param, so a vendor can only ever see their own data.
+      const from = iso(String(q.from || "")), to = iso(String(q.to || ""), true);
+      const now = new Date();
+      const cmFrom = iso(now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-01");
+      const cmTo = iso(now.toISOString().slice(0, 10), true);
+      const norm = (s) => String(s || "").trim().toLowerCase();
+      const names = new Set([norm(claims.brand), ...((claims.allowedBrands) || []).map(norm)].filter(Boolean));
+      const advList = await abPages("/advertisers");
+      const adv = advList.find((a) => names.has(norm(a.name)));
+      if (!adv) return res.status(200).json({ configured: true, advertiserName: "", impressions: 0, clicks: 0, adItems: [] });
+      const aid = String(adv.id);
+      const [allC, adItemsAll, repItem, repItemNow] = await Promise.all([
+        abPages("/campaigns"),
+        abPages("/ad-items").catch(() => []),
+        ab("/reports", { type: "ad-item", period: "month", from, to }).catch(() => ({})),
+        ab("/reports", { type: "ad-item", period: "month", from: cmFrom, to: cmTo }).catch(() => ({})),
+      ]);
+      const myCampaignIds = new Set(allC.filter((c) => advId(c) === aid).map((c) => String(c.id)));
+      const met = {};
+      for (const row of (repItem.data || [])) { const s = row.summary || {}; met[String(row.id)] = { impressions: num(s.impressions), clicks: num(s.clicks) }; }
+      const curImpr = {};
+      for (const row of (repItemNow.data || [])) curImpr[String(row.id)] = num((row.summary || {}).impressions);
+      const adItems = adItemsAll
+        .filter((it) => it && it.parent && it.parent.type === "campaign" && myCampaignIds.has(String(it.parent.id)))
+        .map((it) => {
+          const id = String(it.id); const m = met[id] || { impressions: 0, clicks: 0 };
+          const imageUrl = (it.creative_url && !/default_banner\.gif/i.test(it.creative_url))
+            ? it.creative_url
+            : (it.creative ? "https://servedbyadbutler.com/getad.img/?libBID=" + encodeURIComponent(String(it.creative)) : "");
+          return { bannerId: id, name: it.name || ("Ad Item " + id), width: num(it.width), height: num(it.height), imageUrl, clickUrl: it.location || "", createdDate: it.created_date || "", impressions: m.impressions, clicks: m.clicks, active: (curImpr[id] || 0) > 0 };
+        })
+        .sort((a, b) => String(b.createdDate).localeCompare(String(a.createdDate)));
+      const impressions = adItems.reduce((s, c) => s + c.impressions, 0);
+      const clicks = adItems.reduce((s, c) => s + c.clicks, 0);
+      return res.status(200).json({ configured: true, advertiserName: adv.name || "", impressions, clicks, adItems });
     }
 
     return res.status(400).json({ error: "Unknown action" });
