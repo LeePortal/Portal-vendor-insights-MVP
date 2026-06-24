@@ -9,7 +9,7 @@ import { API_BASE_URL } from "./app-config";
  * the AdButler key server-side. Spotlight metrics are live from AdButler; Featured Products is pending
  * its data source (callers fold in a 0 placeholder for now). `configured:false` => AdButler key not set.
  */
-export interface PpAdvertiser { id: string; name: string; }
+export interface PpAdvertiser { id: string; name: string; adItems?: number; }
 export interface PpCampaign { id: string; name: string; advertiserId: string; advertiserName: string; active: boolean; impressions: number; clicks: number; adItems: number; }
 /** An ad-item (AdButler image_ad_item) within a campaign — the creative image plus its own metrics. */
 export interface PpCreative {
@@ -23,7 +23,22 @@ export class PremiumPlacementSource {
   private http = inject(HttpClient);
   private auth = inject(AuthService);
   private base = API_BASE_URL + "/api/adbutler";
+  private mapBase = API_BASE_URL + "/api/pp-mapping";
   private hdr(): Record<string, string> { const t = this.auth.token(); return t ? { Authorization: "Bearer " + t } : {}; }
+
+  /** Admin: the advertiser->Portal-brand(s) map. { [advertiserId]: brandName[] }. */
+  async getBrandMap(): Promise<{ configured: boolean; map: Record<string, string[]> }> {
+    try {
+      const r = await firstValueFrom(this.http.get<{ configured: boolean; map?: Record<string, string[]> }>(this.mapBase, { headers: this.hdr() }));
+      return { configured: !!(r && r.configured), map: (r && r.map) || {} };
+    } catch { return { configured: false, map: {} }; }
+  }
+
+  /** Admin: upsert one advertiser's brand list (empty clears it). Returns the full updated map. */
+  async saveBrandMap(advertiserId: string, brands: string[]): Promise<Record<string, string[]>> {
+    const r = await firstValueFrom(this.http.post<{ ok: boolean; map?: Record<string, string[]> }>(this.mapBase, { advertiserId, brands }, { headers: this.hdr() }));
+    return (r && r.map) || {};
+  }
 
   /** Active (non-archived) AdButler advertisers; the count is the filter-independent "active advertisers". */
   async advertisers(): Promise<{ configured: boolean; advertisers: PpAdvertiser[] }> {

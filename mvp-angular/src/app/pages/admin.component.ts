@@ -130,6 +130,7 @@ interface UserRow { name: string; email: string; logins: number; views: number; 
             <button [class.on]="ppStatus === 'expired'" (click)="setPpStatus('expired')">Expired</button>
           </div>
         </div>
+        <a class="pbtn" [routerLink]="['/admin/premium/mapping']" style="margin-left:auto">Brand mapping</a>
       </div>
 
       <div *ngIf="!ppConfigured" class="pcard" style="border:1px solid #ff5000;background:var(--accent-soft);margin-bottom:16px">

@@ -1,5 +1,6 @@
 import { Component, inject, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
+import { RouterLink } from "@angular/router";
 import { PremiumPlacementSource, PpCreative, PpAdvertiser } from "../core/premium-placement.source";
 import { BrandPerformanceSource } from "../core/brand-performance.source";
 import { AuthService } from "../core/auth.service";
@@ -22,7 +23,7 @@ type Status = "all" | "active" | "expired";
 @Component({
   selector: "app-premium-overview",
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterLink],
   styles: [`
     .kgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
     .aigrid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; }
@@ -52,7 +53,7 @@ type Status = "all" | "active" | "expired";
       <div class="filt" *ngIf="isAdmin"><label>Brand</label>
         <select class="minput" (change)="onBrand($any($event.target).value)">
           <option value="">Select a brand…</option>
-          <option *ngFor="let a of advertisers" [value]="a.id" [selected]="a.id === brandId">{{ a.name }}</option>
+          <option *ngFor="let a of mappedAdvertisers" [value]="a.id" [selected]="a.id === brandId">{{ a.name }}</option>
         </select>
       </div>
       <div class="filt"><label>Period</label>
@@ -73,6 +74,8 @@ type Status = "all" | "active" | "expired";
         </div>
       </div>
     </div>
+
+    <div *ngIf="isAdmin && !loading && !mappedAdvertisers.length" class="muted" style="font-size:12px;margin:-4px 0 12px">No brands are mapped yet — set advertiser↔brand links in <a [routerLink]="['/admin/premium/mapping']">Brand mapping</a>.</div>
 
     <div *ngIf="!ppConfigured && !loading && hasScope" class="pcard" style="border:1px solid #ff5000;background:var(--accent-soft);margin-bottom:16px"><div class="bd" style="font-size:13px;color:#ff5000">AdButler isn't connected yet — Spotlight impressions and clicks will populate once it is.</div></div>
 
@@ -159,6 +162,9 @@ export class PremiumOverviewComponent implements OnInit {
   brandId = "";
   brandName = "";       // the AdButler advertiser name (for display + Spotlight scope)
   redshiftBrand = "";   // resolved live Portal/Redshift brand (for the YoY widgets)
+  brandMap: Record<string, string[]> = {};  // advertiserId -> Portal brand(s), from the admin Brand mapping screen
+
+  get mappedAdvertisers(): PpAdvertiser[] { return this.advertisers.filter((a) => (this.brandMap[a.id] || []).length > 0); }
 
   /** Whether the view is scoped to a single brand yet (always true for vendors; true for admins once they pick). */
   get hasScope(): boolean { return !this.isAdmin || !!this.brandId; }
@@ -177,7 +183,7 @@ export class PremiumOverviewComponent implements OnInit {
   onBrand(id: string): void {
     this.brandId = id;
     this.brandName = (this.advertisers.find((a) => a.id === id) || { name: "" }).name;
-    this.redshiftBrand = this.resolveBrand(this.brandName);
+    this.redshiftBrand = (this.brandMap[id] || [])[0] || this.resolveBrand(this.brandName); // explicit map wins; heuristic is the fallback
     this.status = "active"; // default to Active whenever a brand is picked
     this.load();
   }
@@ -215,8 +221,11 @@ export class PremiumOverviewComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     await this.an.ready(); // ensure the live Redshift brand list is loaded so resolveBrand() can map names
     if (this.isAdmin) {
-      const r = await this.pp.advertisers().catch(() => ({ configured: false, advertisers: [] as PpAdvertiser[] }));
-      this.ppConfigured = r.configured; this.advertisers = r.advertisers;
+      const [r, mp] = await Promise.all([
+        this.pp.advertisers().catch(() => ({ configured: false, advertisers: [] as PpAdvertiser[] })),
+        this.pp.getBrandMap().catch(() => ({ configured: false, map: {} as Record<string, string[]> })),
+      ]);
+      this.ppConfigured = r.configured; this.advertisers = r.advertisers; this.brandMap = mp.map;
       this.loading = false; // nothing loads until a brand is picked
     } else {
       this.load();

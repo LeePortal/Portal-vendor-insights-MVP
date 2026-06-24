@@ -25,6 +25,7 @@
  * placeholder 0 and will add them once that source exists.
  */
 const { authClaims } = require("../lib/auth");
+const db = require("../lib/db");
 
 const AB_BASE = "https://api.adbutler.com/v2";
 const KEY = process.env.ADBUTLER_API_KEY || process.env.AB_API_KEY || "";
@@ -102,8 +103,19 @@ module.exports = async (req, res) => {
     if (!KEY) return res.status(200).json({ configured: false });
 
     if (action === "advertisers") {
-      const rows = await abPages("/advertisers");
-      const advertisers = rows.map((a) => ({ id: String(a.id), name: a.name || "" })).filter((a) => a.name);
+      // Advertisers + their ad-item counts (campaign-parented ad-items attributed via campaign->advertiser).
+      const [rows, allC, adItemsAll] = await Promise.all([
+        abPages("/advertisers"),
+        abPages("/campaigns").catch(() => []),
+        abPages("/ad-items").catch(() => []),
+      ]);
+      const campAdv = {};
+      for (const c of allC) campAdv[String(c.id)] = advId(c);
+      const countByAdv = {};
+      for (const it of adItemsAll) {
+        if (it && it.parent && it.parent.type === "campaign") { const a = campAdv[String(it.parent.id)]; if (a) countByAdv[a] = (countByAdv[a] || 0) + 1; }
+      }
+      const advertisers = rows.map((a) => ({ id: String(a.id), name: a.name || "", adItems: countByAdv[String(a.id)] || 0 })).filter((a) => a.name);
       return res.status(200).json({ configured: true, advertisers });
     }
 
@@ -246,10 +258,20 @@ module.exports = async (req, res) => {
         // a company can own several brands, so the view picks up every one the admin set on the account.
         // Matched by name from the TOKEN, never a client param.
         const norm = (s) => String(s || "").trim().toLowerCase();
-        const names = [norm(claims.brand), ...((claims.allowedBrands) || []).map(norm)].filter(Boolean);
-        // Names rarely match exactly (AdButler "Origin" vs Portal "Origin Acoustics"), so match equal-or-prefix either way.
-        const rel = (an) => { const x = norm(an); return names.some((b) => b === x || b.startsWith(x) || x.startsWith(b)); };
-        const matched = advList.filter((a) => rel(a.name));
+        const brandSet = new Set(((claims.allowedBrands) || []).map(norm).filter(Boolean));
+        if (claims.brand) brandSet.add(norm(claims.brand));
+        const map = await db.getPpBrandMap().catch(() => ({}));
+        const mapKeys = Object.keys(map);
+        let matched;
+        if (mapKeys.length) {
+          // Explicit advertiser->brand map governs: advertisers whose mapped Portal brand(s) intersect the vendor's brands.
+          const ids = new Set(mapKeys.filter((id) => (map[id] || []).some((b) => brandSet.has(norm(b)))));
+          matched = advList.filter((a) => ids.has(String(a.id)));
+        } else {
+          // Transitional fallback (no map set yet): equal-or-prefix name match (AdButler "Origin" vs Portal "Origin Acoustics").
+          const rel = (an) => { const x = norm(an); return [...brandSet].some((b) => b === x || b.startsWith(x) || x.startsWith(b)); };
+          matched = advList.filter((a) => rel(a.name));
+        }
         if (!matched.length) return res.status(200).json({ configured: true, advertiserName: "", impressions: 0, clicks: 0, adItems: [] });
         for (const a of matched) advIds.add(String(a.id));
         advName = matched.map((a) => a.name).filter(Boolean).join(", ");

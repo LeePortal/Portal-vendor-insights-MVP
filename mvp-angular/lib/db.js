@@ -56,6 +56,7 @@ function ensureReady() {
       created_by TEXT, created_at BIGINT)`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logos (logo_key TEXT PRIMARY KEY, data_url TEXT NOT NULL)`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logins (email TEXT PRIMARY KEY, last_at BIGINT, count INTEGER NOT NULL DEFAULT 0)`);
+    await p.query(`CREATE TABLE IF NOT EXISTS pp_brand_map (advertiser_id TEXT PRIMARY KEY, brands JSONB NOT NULL DEFAULT '[]')`);
     const { rows } = await p.query("SELECT COUNT(*)::int AS n FROM vendor_users");
     if (!rows[0].n) await replaceAll(buildSeed());
   })().catch((e) => { _ready = null; throw e; });
@@ -180,4 +181,31 @@ function effective(user, company) {
   };
 }
 
-module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, recordLogin, getLogo, effective, isConfigured: () => !!CONN };
+/**
+ * Premium Placement advertiser→Portal-brand(s) map: { [advertiserId]: brandName[] }. Kept in its own table
+ * so the admin UI's whole-dataset PUT (replaceAll) never wipes it. Resilient: returns {} when unconfigured.
+ * Replaces the brittle AdButler-name↔Redshift-brand guessing — admins set this explicitly.
+ */
+async function getPpBrandMap() {
+  if (!CONN) return {};
+  await ensureReady();
+  const r = await pool().query("SELECT advertiser_id, brands FROM pp_brand_map");
+  const map = {};
+  for (const row of r.rows) map[String(row.advertiser_id)] = A(row.brands);
+  return map;
+}
+/** Upsert one advertiser's Portal-brand list; an empty list removes the row. */
+async function setPpBrandMap(advertiserId, brands) {
+  if (!CONN) throw new Error("Vendor store is not configured.");
+  await ensureReady();
+  const id = String(advertiserId || "");
+  if (!id) throw new Error("advertiserId required");
+  const list = A(brands).map((b) => String(b)).filter(Boolean);
+  if (!list.length) { await pool().query("DELETE FROM pp_brand_map WHERE advertiser_id = $1", [id]); return; }
+  await pool().query(
+    `INSERT INTO pp_brand_map (advertiser_id, brands) VALUES ($1, $2)
+     ON CONFLICT (advertiser_id) DO UPDATE SET brands = EXCLUDED.brands`,
+    [id, J(list)]);
+}
+
+module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, isConfigured: () => !!CONN };
