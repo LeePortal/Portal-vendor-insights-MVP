@@ -5,13 +5,12 @@ import { MatIconModule } from "@angular/material/icon";
 import { AuthService } from "../core/auth.service";
 import { DataService } from "../core/data.service";
 import { AFilter } from "../core/analytics.service";
-import { BrandPerformanceSource, HealthCheck } from "../core/brand-performance.source";
+import { BrandPerformanceSource, HealthCheck, PlatformStats } from "../core/brand-performance.source";
 import { DATA_MODE } from "../core/app-config";
 import { MultiLineChartComponent, MultiSeries } from "../components/charts.component";
 import { fmtCompact, fmtNumber } from "../core/format";
 
 interface Kp { label: string; value: string; yoy: number; }
-interface PropCard { label: string; count: number | null; yoy: number; }
 interface SkuRow { brand: string; model: string; category: string; sales: string; share: string; units: string; avg: string; }
 interface BrandRow { brand: string; sales: string; share: string; yoy: string; }
 interface SwitchRow { product: string; to: string; units: string; }
@@ -19,10 +18,10 @@ interface SwitchRow { product: string; to: string; units: string; }
 /**
  * Home hub.
  *  - Admin: network sales performance + live-data system status (unchanged).
- *  - Vendor users (subscribers AND free-signup): platform-wide proposal activity only — Submitted /
- *    Accepted / Completed across the whole Portal network, NOT brand-specific. Subscribers then get the
- *    Market Insights / Premium Placement hub cards; free-signup accounts instead get a blurred
- *    "Top selling SKUs" teaser to entice a subscription.
+ *  - Vendor users (subscribers AND free-signup): platform-wide KPIs (proposals, revenue, brands tracked)
+ *    + a revenue-by-month chart (this year vs last year) across the whole Portal network, NOT brand-specific.
+ *    Subscribers then get the Market Insights / Premium Placement hub cards; free-signup accounts instead get
+ *    the locked teaser widgets (SKUs / top brands / displacement) to entice a subscription.
  */
 @Component({
   selector: "app-home",
@@ -84,11 +83,31 @@ interface SwitchRow { product: string; to: string; units: string; }
         <div class="pcard kpi" *ngFor="let s of [1,2,3]"><div class="hsk" style="height:12px;width:55%;margin-bottom:14px"></div><div class="hsk" style="height:26px;width:60%"></div></div>
       </div>
       <div class="kgrid3" style="margin-bottom:16px" *ngIf="!loading">
-        <div class="pcard kpi" *ngFor="let c of propCards">
-          <div class="label">{{ c.label }} proposals</div>
-          <div class="value">{{ c.count === null ? "—" : n(c.count) }}</div>
-          <div class="delta" *ngIf="c.count !== null" [class.up]="c.yoy > 0.05" [class.down]="c.yoy < -0.05">{{ c.yoy >= 0 ? "▲" : "▼" }} {{ absPct(c.yoy) }} YoY</div>
-          <div class="delta" *ngIf="c.count === null">Network total</div>
+        <div class="pcard kpi">
+          <div class="label">Proposals</div>
+          <div class="value">{{ pstats ? n(pstats.proposals.count) : "—" }}</div>
+          <div class="delta" *ngIf="pstats" [class.up]="pstats.proposals.yoy > 0.05" [class.down]="pstats.proposals.yoy < -0.05">{{ pstats.proposals.yoy >= 0 ? "▲" : "▼" }} {{ absPct(pstats.proposals.yoy) }} YoY</div>
+        </div>
+        <div class="pcard kpi">
+          <div class="label">Revenue</div>
+          <div class="value">{{ pstats ? ("$" + compact(pstats.revenue.value)) : "—" }}</div>
+          <div class="delta" *ngIf="pstats" [class.up]="pstats.revenue.yoy > 0.05" [class.down]="pstats.revenue.yoy < -0.05">{{ pstats.revenue.yoy >= 0 ? "▲" : "▼" }} {{ absPct(pstats.revenue.yoy) }} YoY</div>
+        </div>
+        <div class="pcard kpi">
+          <div class="label">Brands tracked</div>
+          <div class="value">{{ pstats ? n(pstats.brands.count) : "—" }}</div>
+        </div>
+      </div>
+
+      <div *ngIf="loading" class="pcard" style="margin-bottom:16px"><div class="hsk" style="height:14px;width:30%;margin-bottom:18px"></div><div class="hsk" style="height:220px"></div></div>
+      <div class="pcard" style="margin-bottom:16px" *ngIf="!loading && revSeries.length">
+        <div class="hd"><div class="t">Revenue by month</div><div class="s">Dealer revenue across the Portal.io network — this year vs. last year</div></div>
+        <div class="bd">
+          <div style="display:flex;gap:18px;font-size:12px;color:var(--text-muted);margin-bottom:8px">
+            <span><span style="display:inline-block;width:14px;border-top:3px solid #ff5000;vertical-align:middle"></span> This year</span>
+            <span><span style="display:inline-block;width:14px;border-top:3px dashed #8a8a82;vertical-align:middle"></span> Last year</span>
+          </div>
+          <app-multiline [series]="revSeries" [axis]="revAxis" yLabel="Revenue ($)" xLabel="Month" valueFormat="money"></app-multiline>
         </div>
       </div>
 
@@ -104,14 +123,9 @@ interface SwitchRow { product: string; to: string; units: string; }
       </div>
 
       <ng-container *ngIf="isFree">
-        <div class="pcard tz-banner">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
-            <div>
-              <div style="font-size:15px;font-weight:600;color:var(--text)">Unlock the full Market Insights view</div>
-              <div style="font-size:12.5px;color:var(--text-muted);margin-top:2px;max-width:520px">You're exploring on a free account. Subscribe to reveal sales, share, competitive switches and trends across the Portal network.</div>
-            </div>
-            <button class="pbtn primary" (click)="subscribe()" style="flex:0 0 auto">{{ subscribed ? "Thanks — we'll be in touch" : "Subscribe to unlock" }}</button>
-          </div>
+        <div class="pcard tz-banner" style="text-align:center">
+          <div style="font-size:15px;font-weight:600;color:var(--text)">Unlock the full Market Insights view</div>
+          <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;max-width:520px;margin-left:auto;margin-right:auto">You're exploring on a free account. Subscribe to reveal sales, share, competitive switches and trends across the Portal network.</div>
         </div>
 
         <div class="pcard tz-card2">
@@ -189,8 +203,10 @@ export class HomeComponent implements OnInit {
 
   // Vendor / free-signup view
   n = fmtNumber;
-  propCards: PropCard[] = [{ label: "Submitted", count: null, yoy: 0 }, { label: "Accepted", count: null, yoy: 0 }, { label: "Completed", count: null, yoy: 0 }];
-  subscribed = false;
+  compact = fmtCompact;
+  pstats: PlatformStats | null = null;          // network-wide KPIs (proposals / revenue / brands tracked)
+  revSeries: MultiSeries[] = [];                // revenue by month: this year (solid) + last year (dashed)
+  revAxis: string[] = [];
   teaserLoading = true; // brief faux "fetching" delay on the teasers so they feel like real data loading
   // Representative teaser rows — intentionally NOT real data (the values are blurred to entice a subscription).
   teaserSkus: SkuRow[] = [
@@ -265,15 +281,17 @@ export class HomeComponent implements OnInit {
     if (this.isFree) setTimeout(() => { this.teaserLoading = false; }, 1200); // faux fetch delay on the teaser widgets
     try {
       const r = await this.src.platformStats();
-      const by: Record<string, { count: number; yoy: number }> = {};
-      for (const s of r.statuses) by[s.key] = { count: s.count, yoy: s.yoy };
-      this.propCards = ["Submitted", "Accepted", "Completed"].map((k) => {
-        const e = by[k];
-        return { label: k, count: e ? e.count : null, yoy: e ? e.yoy : 0 };
-      });
+      this.pstats = r.configured ? r : null;
+      if (r.configured && r.revByMonth.labels.length) {
+        this.revAxis = r.revByMonth.labels;
+        this.revSeries = [
+          { label: "This year", values: r.revByMonth.thisYear, color: "#ff5000" },
+          { label: "Last year", values: r.revByMonth.lastYear, color: "#8a8a82", dash: true },
+        ];
+      }
       this.loadError = "";
     } catch (e: any) {
-      this.loadError = "Couldn't load network activity: " + ((e && e.message) || e);
+      this.loadError = "Couldn't load network data: " + ((e && e.message) || e);
     } finally {
       this.loading = false;
     }
@@ -293,6 +311,5 @@ export class HomeComponent implements OnInit {
     }
   }
 
-  subscribe(): void { this.subscribed = true; }
   absPct(n: number): string { return Math.abs(n).toFixed(1) + "%"; }
 }

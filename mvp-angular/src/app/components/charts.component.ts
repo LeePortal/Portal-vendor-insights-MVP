@@ -202,7 +202,7 @@ export class DualLineChartComponent implements AfterViewInit {
   hover(ev: MouseEvent): void { const n = this.points.length; if (!n) return; const r = (ev.currentTarget as HTMLElement).getBoundingClientRect(); const fr = (ev.clientX - r.left) / r.width; this.hi = Math.max(0, Math.min(n - 1, Math.round(fr * (n - 1)))); }
 }
 
-export interface MultiSeries { label: string; values: number[]; color: string; }
+export interface MultiSeries { label: string; values: number[]; color: string; dash?: boolean; }
 
 /** Multi-line chart with axis labels + hover tooltip listing every series value. */
 @Component({
@@ -222,7 +222,7 @@ export interface MultiSeries { label: string; values: number[]; color: string; }
               <line *ngIf="shadeFrom >= 0" [attr.x1]="shadeX" y1="0" [attr.x2]="shadeX" [attr.y2]="H" stroke="#ff5000" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
               <line *ngIf="shadeFrom >= 0 && shadeTo >= 0" [attr.x1]="shadeX2" y1="0" [attr.x2]="shadeX2" [attr.y2]="H" stroke="#ff5000" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
               <line *ngIf="baseline != null" x1="0" [attr.y1]="baselineY" [attr.x2]="W" [attr.y2]="baselineY" stroke="#aeb0b5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></line>
-              <polyline *ngFor="let s of series" [attr.points]="line(s)" fill="none" [attr.stroke]="s.color" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
+              <polyline *ngFor="let s of series" [attr.points]="line(s)" fill="none" [attr.stroke]="s.color" stroke-width="2" [attr.stroke-dasharray]="s.dash ? '5 4' : null" vector-effect="non-scaling-stroke"></polyline>
               <g *ngFor="let s of series"><circle *ngFor="let p of pts(s)" [attr.cx]="p.x" [attr.cy]="p.y" [attr.r]="series.length && series[0].values.length <= 3 ? 5 : 3" [attr.fill]="s.color"></circle></g>
             </svg>
             <div class="chart-guide" *ngIf="hi>=0 && axis.length" [style.left.%]="guideX"></div>

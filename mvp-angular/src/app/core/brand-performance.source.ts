@@ -10,6 +10,14 @@ const KINDS: ProposalKind[] = ["value", "count", "pct", "avg"];
 
 export interface HealthCheck { id: string; label: string; status: "up" | "down" | "degraded"; detail: string; }
 export interface HealthPayload { ts: number; checks: HealthCheck[]; }
+/** Network-wide Home stats (aggregate, all statuses, trailing 12 months). */
+export interface PlatformStats {
+  configured: boolean;
+  proposals: { count: number; yoy: number };
+  revenue: { value: number; yoy: number };
+  brands: { count: number; yoy: number };
+  revByMonth: { labels: string[]; thisYear: number[]; lastYear: number[] };
+}
 
 /**
  * Single source for the Brand Performance Overview. In 'synthetic' mode it assembles the
@@ -84,16 +92,28 @@ export class BrandPerformanceSource {
     return this.an.dealersSpeccingSynthetic(brand);
   }
 
-  /** Network-wide proposal activity (Submitted/Accepted/Completed + YoY) for the Home page. Aggregate,
-   *  non-brand, non-dealer — available to any signed-in user (subscriber or free-signup). */
-  async platformStats(): Promise<{ configured: boolean; statuses: { key: string; count: number; yoy: number }[] }> {
+  /** Network-wide platform stats for the Home page: proposal count, revenue, brands tracked (each +YoY,
+   *  all statuses, trailing 12 months) and monthly revenue (this year + last year). Aggregate, non-brand,
+   *  non-dealer — available to any signed-in user (subscriber or free-signup). */
+  async platformStats(): Promise<PlatformStats> {
     if (DATA_MODE === "api") {
       try {
-        const r = await firstValueFrom(this.http.get<{ configured?: boolean; statuses?: { key: string; count: number; yoy: number }[] }>(API_BASE_URL + "/api/platform-stats", { headers: this.authHeader() }));
-        return { configured: !!(r && r.configured), statuses: (r && r.statuses) || [] };
-      } catch { return { configured: false, statuses: [] }; }
+        const r = await firstValueFrom(this.http.get<Partial<PlatformStats>>(API_BASE_URL + "/api/platform-stats", { headers: this.authHeader() }));
+        return {
+          configured: !!(r && r.configured),
+          proposals: (r && r.proposals) || { count: 0, yoy: 0 },
+          revenue: (r && r.revenue) || { value: 0, yoy: 0 },
+          brands: (r && r.brands) || { count: 0, yoy: 0 },
+          revByMonth: (r && r.revByMonth) || { labels: [], thisYear: [], lastYear: [] },
+        };
+      } catch { return { configured: false, proposals: { count: 0, yoy: 0 }, revenue: { value: 0, yoy: 0 }, brands: { count: 0, yoy: 0 }, revByMonth: { labels: [], thisYear: [], lastYear: [] } }; }
     }
-    return { configured: true, statuses: [{ key: "Submitted", count: 48210, yoy: 6.2 }, { key: "Accepted", count: 19540, yoy: 4.1 }, { key: "Completed", count: 12880, yoy: 9.8 }] };
+    const labels = ["Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24", "Jan '25", "Feb '25", "Mar '25", "Apr '25", "May '25", "Jun '25"];
+    return {
+      configured: true,
+      proposals: { count: 12840, yoy: 6.2 }, revenue: { value: 48600000, yoy: 4.8 }, brands: { count: 1284, yoy: 3.1 },
+      revByMonth: { labels, thisYear: [3.1, 3.3, 3.2, 3.8, 3.6, 4.2, 4.0, 4.4, 4.3, 4.8, 4.6, 5.1].map((v) => v * 1e6), lastYear: [2.8, 2.9, 2.9, 3.2, 3.1, 3.6, 3.5, 3.8, 3.7, 4.0, 3.9, 4.3].map((v) => v * 1e6) },
+    };
   }
 
   /** Build the exact payload from the in-browser generator (also documents the API contract). */
