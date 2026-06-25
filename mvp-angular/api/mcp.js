@@ -17,22 +17,10 @@
  * tools/call, ping. No SSE/server-initiated messages (stateless). Production may swap this hand-rolled
  * handler for the official @modelcontextprotocol/sdk; the tool definitions carry over.
  */
-const { authClaims, bearer } = require("../lib/auth");
+const { authClaims, sign } = require("../lib/auth");
 const db = require("../lib/db");
 
 const PROTOCOL_VERSION = "2025-03-26";
-const ymd = (d) => d.toISOString().slice(0, 10);
-
-/** Resolve a {from,to} window (YYYY-MM-DD) from a horizon preset, for endpoints that need explicit dates. */
-function range(horizon, from, to) {
-  const DRE = /^\d{4}-\d{2}-\d{2}$/;
-  if (horizon === "Custom" && DRE.test(from || "") && DRE.test(to || "")) return { from, to };
-  const now = new Date();
-  const end = ymd(now);
-  if (horizon === "MTD") return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: end };
-  if (horizon === "QTD") { const q = Math.floor(now.getMonth() / 3) * 3; return { from: ymd(new Date(now.getFullYear(), q, 1)), to: end }; }
-  return { from: ymd(new Date(now.getFullYear(), 0, 1)), to: end }; // YTD default
-}
 
 const csv = (v) => (Array.isArray(v) ? v.join(",") : v ? String(v) : "");
 
@@ -41,12 +29,12 @@ const csv = (v) => (Array.isArray(v) ? v.join(",") : v ? String(v) : "");
 const TOOLS = [
   {
     name: "query_market_insights",
-    description: "Market Insights for the caller's brand across the Portal dealer network — KPIs (revenue, units, proposals, active dealers, each with year-over-year), the top brands by category share, and the top-selling SKUs. Results are scoped on the server to exactly what the caller is allowed to see; a brand argument is honored only for admins.",
+    description: "Market Insights across the entire Portal dealer network — KPIs (revenue, units, proposals, active dealers, each with year-over-year), the top brands by category share, and the top-selling SKUs. Covers all brands, categories, and states. Pass `brand` to center KPIs on one brand; omit it for the whole market. parents/subcategories/states optionally narrow the view.",
     inputSchema: {
       type: "object",
       properties: {
-        brand: { type: "string", description: "Focal brand. Admins only — for vendors this is ignored and locked to their own brand." },
-        parents: { type: "array", items: { type: "string" }, description: "Parent categories to filter to (within the caller's allowed set)." },
+        brand: { type: "string", description: "Focal brand to center KPIs on (any brand on the network). Omit for the whole filtered market." },
+        parents: { type: "array", items: { type: "string" }, description: "Parent categories to narrow to." },
         subcategories: { type: "array", items: { type: "string" } },
         states: { type: "array", items: { type: "string" } },
         statuses: { type: "array", items: { type: "string" }, description: "Proposal statuses: Submitted, Accepted, Completed." },
@@ -82,27 +70,61 @@ const TOOLS = [
     },
   },
   {
-    name: "get_premium_placement",
-    description: "The caller's Premium Placement (Spotlight advertising) performance: impressions, clicks, and per-ad-item creative metrics for the period. Scoped to the caller's own advertiser.",
+    name: "query_win_loss",
+    description: "Competitive win/loss for a chosen brand: that brand's products that beat competitors (won), and its products that were removed/replaced on a proposal (lost) — each lost item showing which competitor brand and model displaced it. Pass `brand` to choose whose win/loss to analyze (any brand on the network); parents/subcategories/states optionally narrow it. Use for 'why is brand X losing deals, and to whom'.",
     inputSchema: {
       type: "object",
       properties: {
+        brand: { type: "string", description: "Brand whose win/loss to analyze (any brand on the network). Required to return results." },
+        parents: { type: "array", items: { type: "string" } },
+        subcategories: { type: "array", items: { type: "string" } },
+        states: { type: "array", items: { type: "string" } },
         horizon: { type: "string", enum: ["MTD", "QTD", "YTD", "Custom"], description: "Date window. Default YTD." },
         from: { type: "string", description: "YYYY-MM-DD, Custom horizon only." },
         to: { type: "string", description: "YYYY-MM-DD, Custom horizon only." },
       },
     },
     async run(args, ctx) {
-      const { from, to } = range(args.horizon || "YTD", args.from, args.to);
-      const { json, status } = await ctx.call("/api/adbutler?action=overview&from=" + from + "&to=" + to);
-      const data = {
-        advertiserName: json.advertiserName || "", impressions: json.impressions || 0, clicks: json.clicks || 0,
-        adItems: (json.adItems || []).map((c) => ({ name: c.name, impressions: c.impressions, clicks: c.clicks, active: c.active })),
-      };
-      return { data, rows: (json.adItems || []).length, status };
+      const params = new URLSearchParams({
+        brand: args.brand || "", parents: csv(args.parents), subs: csv(args.subcategories), states: csv(args.states),
+        horizon: args.horizon || "YTD", from: args.from || "", to: args.to || "", agg: "monthly",
+      });
+      const { json, status } = await ctx.call("/api/brand-performance?" + params.toString());
+      const data = { won: (json.won || []).slice(0, 50), lost: (json.lost || []).slice(0, 50) };
+      return { data, rows: (json.won || []).length + (json.lost || []).length, status };
+    },
+  },
+  {
+    name: "query_proposal_detail",
+    description: "Individual proposal LINE ITEMS across any brand on the network, INCLUDING items that were removed/replaced on a proposal (each row carries a 'replaced' flag). Use for proposal-level questions — which deals a product appeared on, or which line items were swapped out. Pass `brand` to filter to one brand; omit to span all. Dealer/customer identity is never returned; capped at 500 rows.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        brand: { type: "string", description: "Optional brand filter (any brand on the network). Omit to span all brands." },
+        parents: { type: "array", items: { type: "string" } },
+        subcategories: { type: "array", items: { type: "string" } },
+        states: { type: "array", items: { type: "string" } },
+        statuses: { type: "array", items: { type: "string" }, description: "Proposal statuses." },
+        includeReplaced: { type: "boolean", description: "Include removed/replaced line items. Default true." },
+        horizon: { type: "string", enum: ["MTD", "QTD", "YTD", "Custom"], description: "Date window. Default YTD." },
+        from: { type: "string", description: "YYYY-MM-DD, Custom horizon only." },
+        to: { type: "string", description: "YYYY-MM-DD, Custom horizon only." },
+        limit: { type: "number", description: "Max rows (default 200, hard cap 500)." },
+      },
+    },
+    async run(args, ctx) {
+      const params = new URLSearchParams({
+        brand: args.brand || "", parents: csv(args.parents), subs: csv(args.subcategories), states: csv(args.states),
+        statuses: csv(args.statuses), horizon: args.horizon || "YTD", from: args.from || "", to: args.to || "",
+        includeReplaced: args.includeReplaced === false ? "false" : "true", limit: String(args.limit || 200),
+      });
+      const { json, status } = await ctx.call("/api/proposal-detail?" + params.toString());
+      return { data: json, rows: (json.rows || []).length, status };
     },
   },
 ];
+// NOTE: Market Insights only for now. A Premium Placement tool (AdButler) was intentionally removed —
+// do not re-add it to this catalog until the PP agent experience is explicitly back in scope.
 const TOOL_BY_NAME = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
 
 const rpcResult = (id, result) => ({ jsonrpc: "2.0", id, result });
@@ -130,11 +152,15 @@ module.exports = async (req, res) => {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   const base = proto + "://" + host;
-  const token = bearer(req);
-  // ctx.call: GET a sibling /api endpoint forwarding the caller's token (reuses all scope enforcement).
+  // Mint a short-lived signed token that opens ALL brands/categories/states for the data endpoints.
+  // Policy: cross-brand sales data is non-sensitive; the ONLY thing protected is dealer identity, which
+  // those endpoints never emit. The `mcpUnscoped` flag is signed here, so a browser/vendor token can't
+  // forge it — the dashboard's per-user scoping stays a hard boundary; only the MCP runs unscoped.
+  const mcpToken = sign({ ...claims, mcpUnscoped: true, exp: Math.floor(Date.now() / 1000) + 120 }, process.env.AUTH_SECRET);
+  // ctx.call: GET a sibling /api endpoint with the unscoped MCP token (still verified + dealer-redacted there).
   const ctx = {
     async call(path) {
-      const r = await fetch(base + path, { headers: { Authorization: "Bearer " + token } });
+      const r = await fetch(base + path, { headers: { Authorization: "Bearer " + mcpToken } });
       let json = {};
       try { json = await r.json(); } catch { json = {}; }
       return { json, status: r.status };

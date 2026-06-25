@@ -6,7 +6,7 @@ How AI assistants (e.g. Claude) query Portal vendor data, and how access is enfo
 
 An assistant connects to a single MCP endpoint, signs in as a real Portal user, and can then call read-only tools. It sees **exactly** the data that user sees in the dashboard — same brand, category, and state scope — and nothing more, regardless of how it's prompted.
 
-- **Resource server:** `api/mcp.js` — the agent-facing endpoint. JSON-RPC (`initialize`, `tools/list`, `tools/call`, `ping`). Tools: `query_market_insights`, `platform_stats`, `get_premium_placement`.
+- **Resource server:** `api/mcp.js` — the agent-facing endpoint. JSON-RPC (`initialize`, `tools/list`, `tools/call`, `ping`). Tools: `query_market_insights`, `platform_stats`, `query_win_loss` (the brand's win/loss displacement, including which competitor brand+model replaced a line item), and `query_proposal_detail` (raw proposal line items including deleted/replaced rows). **Market Insights only** — a Premium Placement tool was intentionally removed and must not be re-added until PP is explicitly back in scope. Proposal-level detail (`api/proposal-detail.js`) is open across all brands on the MCP path; the one protection is an explicit column allow-list that omits dealer/customer identity (no `name`, no `dealerid`), plus a 500-row cap. (A direct, non-MCP call falls back to the caller's own brand + their dashboard walls.)
 - **Authorization server:** `api/oauth.js` — self-hosted OAuth 2.1 (one function, sub-routed by `?action=`).
 - **Store:** `lib/db.js` — `oauth_clients`, `oauth_codes` (single-use), `oauth_tokens` (refresh tokens, hashed at rest, revocable). Tables auto-create.
 - **Identity:** `lib/identity.js` — `buildClaims(email)` builds the user's scope; `authenticate(email,password)` is the credential check (demo password today; swap for Portal SSO).
@@ -14,9 +14,11 @@ An assistant connects to a single MCP endpoint, signs in as a real Portal user, 
 
 ## Access model — what a user can and cannot see
 
-Enforcement is **not re-implemented** in the MCP layer. Every tool forwards the caller's token to the existing `/api/brand-performance`, `/api/platform-stats`, and `/api/adbutler` endpoints, so the agent inherits the same rules and can never widen its own scope. Enforcement lives in `brand-performance.js` (`resolveTenant` + `baseFilter`) and `adbutler.js` (`overview` action).
+**MCP policy (per the product owner, 2026-06-25):** cross-brand sales data is *not* sensitive — an assistant may read **all brands, categories, and states**. The **only** thing protected on the MCP is dealer/customer identity (`name` and `dealerid` are never selected). Mechanism: the MCP server mints a short-lived **signed** token carrying `mcpUnscoped`, which `brand-performance.resolveTenant` and `proposal-detail` treat like an admin — no row walls. A browser/vendor token can't forge that flag, so this opening applies to the MCP path only.
 
-There are two layers. Only the first is a security boundary.
+The per-user data walls described below still govern the **dashboard UI** (and any direct, non-MCP API call). They are **not** applied on the MCP path. The MCP tools forward to the same `/api/brand-performance`, `/api/platform-stats`, and `/api/proposal-detail` endpoints; enforcement (when it applies) lives in `brand-performance.js` (`resolveTenant` + `baseFilter`).
+
+The dashboard has two layers. Only the first is a security boundary.
 
 ### Layer 1 — Data scope (row-level security)
 
@@ -33,7 +35,7 @@ Four inclusion lists, set per user in the admin control panel, carried in the si
 
 Plus: free-signup accounts get `403` from `brand-performance` (no MI subscription); competitor **aggregates** are visible within allowed categories (intentional, for benchmarking) but never competitors' line items; dealer/customer identity is never returned to a vendor.
 
-So "other than brand," the walls are **parent category, subcategory, and state.** All four flow through MCP and are verified.
+On the **dashboard**, the walls are brand, parent category, subcategory, and state. On the **MCP path these are not applied** — see the policy note above; the MCP sees all brands/categories/states, protecting only dealer identity.
 
 ### Layer 2 — Capability perms (`perms{}`)
 

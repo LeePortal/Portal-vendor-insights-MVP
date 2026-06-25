@@ -87,8 +87,12 @@ function xpool() {
 function resolveTenant(claims, req) {
   const q = req.query && req.query.brand ? String(req.query.brand) : "";
   let focal = q && q !== "admin" ? q : ""; // selected focal brand; "" = all filtered brands
-  if (claims.role === "admin") {
-    // Admin: KPIs/share follow the focal brand (or all); displacement follows the focal brand too.
+  // Admins, and MCP-minted tokens (mcpUnscoped), see all brands/categories/states. The mcpUnscoped flag
+  // is set only by the signed token the MCP server mints (api/mcp.js) — a browser/vendor token can't
+  // forge it, so dashboard scoping is unaffected. Safe to open here: this endpoint never emits dealer
+  // identity, and cross-brand sales data is non-sensitive by policy.
+  if (claims.role === "admin" || claims.mcpUnscoped === true) {
+    // KPIs/share follow the focal brand (or all); displacement follows the focal brand too.
     return { brand: focal, ownBrand: "", allowedParents: [], allowedSubs: [], allowedStates: [], allowedBrands: [] };
   }
   const arr = (v) => (Array.isArray(v) ? v : []);
