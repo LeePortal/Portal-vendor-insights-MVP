@@ -105,7 +105,7 @@ module.exports = async (req, res) => {
     if (action === "connections") {
       const claims = authClaims(req);
       if (!claims) return res.status(401).json({ error: "Unauthorized" });
-      return res.status(200).json({ mcpUrl: base + "/api/mcp", apps: await db.listConnectedApps(claims.email) });
+      return res.status(200).json({ mcpUrl: base + "/api/mcp", mcpEnabled: await db.mcpAccessFor(claims.email), apps: await db.listConnectedApps(claims.email) });
     }
     if (action === "revoke-app") {
       if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
@@ -152,6 +152,11 @@ module.exports = async (req, res) => {
       // POST = the user submitted the consent form: check credentials.
       const claims = await identity.authenticate(p.email, src.password || "");
       if (!claims) { res.setHeader("Content-Type", "text/html; charset=utf-8"); return res.status(200).send(consentPage(req, p, "Invalid email or password.")); }
+      // MCP-access gate: even with valid credentials, the account must be enabled for AI assistant access.
+      if (!(await db.mcpAccessFor(p.email))) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.status(200).send(consentPage(req, p, "This account isn't enabled for AI assistant access. Contact your Portal administrator."));
+      }
       const code = crypto.randomBytes(24).toString("base64url");
       await db.saveAuthCode({ code, clientId: p.client_id, redirectUri: p.redirect_uri, codeChallenge: p.code_challenge, email: p.email, scope: p.scope, exp: Date.now() + CODE_TTL_MS });
       const u = new URL(p.redirect_uri);

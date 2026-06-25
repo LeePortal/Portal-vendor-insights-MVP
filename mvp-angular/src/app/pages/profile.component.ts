@@ -62,27 +62,30 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
     </div>
 
     <div class="pcard" style="margin-top:16px">
-      <div class="hd"><div class="t">AI assistant access</div><div class="s">Let an AI assistant (like Claude) read your Portal data — scoped to exactly what your account can see</div></div>
+      <div class="hd"><div class="t">AI assistant access</div><div class="s">Let an AI assistant (like Claude) query Portal Market Insights on your behalf</div></div>
       <div class="bd">
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Connection URL — add this as a connector in your AI assistant</div>
-        <div style="display:flex;gap:8px;margin-bottom:6px">
-          <input #urlInput class="minput" style="flex:1;font-family:monospace;font-size:12px" [value]="mcpUrl" readonly />
-          <button class="pbtn" (click)="copyUrl(urlInput)">{{ copied ? "Copied" : "Copy" }}</button>
-        </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">You'll be asked to sign in and approve access. The assistant can only read what you can — it can't change anything, export, or see other brands' data. Revoke access here any time.</div>
-
-        <div style="border-top:1px solid var(--border);margin:16px 0"></div>
-
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Connected assistants</div>
         <div *ngIf="loadingApps" style="font-size:12px;color:var(--text-muted)">Loading…</div>
-        <div *ngIf="!loadingApps && !apps.length" style="font-size:12px;color:var(--text-muted)">No assistants connected yet.</div>
-        <div *ngFor="let a of apps" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-          <div>
-            <div style="font-weight:600;font-size:13px">{{ a.name }}</div>
-            <div style="font-size:11px;color:var(--text-muted)">Connected {{ fmt(a.createdAt) }}<span *ngIf="a.lastAt"> · last used {{ fmt(a.lastAt) }}</span></div>
+        <div *ngIf="!loadingApps && !mcpEnabled" style="font-size:13px;color:var(--text-muted)">AI assistant access isn't enabled for your account. Contact your Portal administrator to turn it on.</div>
+        <ng-container *ngIf="!loadingApps && mcpEnabled">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Connection URL — add this as a connector in your AI assistant</div>
+          <div style="display:flex;gap:8px;margin-bottom:6px">
+            <input #urlInput class="minput" style="flex:1;font-family:monospace;font-size:12px" [value]="mcpUrl" readonly />
+            <button class="pbtn" (click)="copyUrl(urlInput)">{{ copied ? "Copied" : "Copy" }}</button>
           </div>
-          <button class="pbtn" (click)="revoke(a)" [disabled]="a.revoking">{{ a.revoking ? "Revoking…" : "Revoke" }}</button>
-        </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">You'll be asked to sign in and approve access. The assistant can read Market Insights data but never individual dealer identities, and it can't change anything. Revoke access here any time.</div>
+
+          <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Connected assistants</div>
+          <div *ngIf="!apps.length" style="font-size:12px;color:var(--text-muted)">No assistants connected yet.</div>
+          <div *ngFor="let a of apps" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+            <div>
+              <div style="font-weight:600;font-size:13px">{{ a.name }}</div>
+              <div style="font-size:11px;color:var(--text-muted)">Connected {{ fmt(a.createdAt) }}<span *ngIf="a.lastAt"> · last used {{ fmt(a.lastAt) }}</span></div>
+            </div>
+            <button class="pbtn" (click)="revoke(a)" [disabled]="a.revoking">{{ a.revoking ? "Revoking…" : "Revoke" }}</button>
+          </div>
+        </ng-container>
       </div>
     </div>
   `,
@@ -108,6 +111,7 @@ export class ProfileComponent implements OnInit {
   apps: ConnectedApp[] = [];
   loadingApps = true;
   copied = false;
+  mcpEnabled = false;   // does this account have AI-assistant access? (set OFF by default, toggled by an admin)
 
   get validInvite(): boolean { return EMAIL_RE.test(this.inv.email.trim()); }
 
@@ -119,9 +123,10 @@ export class ProfileComponent implements OnInit {
     if (!t) { this.loadingApps = false; return; }
     this.loadingApps = true;
     try {
-      const r = await firstValueFrom(this.http.get<{ mcpUrl?: string; apps?: ConnectedApp[] }>(
+      const r = await firstValueFrom(this.http.get<{ mcpUrl?: string; mcpEnabled?: boolean; apps?: ConnectedApp[] }>(
         API_BASE_URL + "/api/oauth?action=connections", { headers: { Authorization: "Bearer " + t } }));
       if (r?.mcpUrl) this.mcpUrl = r.mcpUrl;
+      this.mcpEnabled = !!r?.mcpEnabled;
       this.apps = (r?.apps || []).map((a) => ({ ...a }));
     } catch { /* leave list empty on error */ }
     this.loadingApps = false;

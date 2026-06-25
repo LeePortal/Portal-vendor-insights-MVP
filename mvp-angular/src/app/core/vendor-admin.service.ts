@@ -16,6 +16,7 @@ export interface Company {
   subs: string[];           // company DEFAULT sub-category restriction; [] == all
   states: string[];         // company DEFAULT state restriction; [] == all
   start: string; end: string;
+  mcpAccess?: boolean;      // company DEFAULT for AI-assistant (MCP) access; seeds new users. Default OFF
 }
 export interface VUser {
   email: string; firstName: string; lastName: string; name: string; companyName: string;
@@ -28,6 +29,7 @@ export interface VUser {
   createdBy?: string;       // who created this user (email/name)
   createdAt?: number;       // epoch ms when created
   freeSignup?: boolean;     // self-serve free account (no subscription) — shown the teaser Home, not the dashboards
+  mcpAccess?: boolean;      // may connect an AI assistant via MCP? default OFF (opt-in, set by admin)
 }
 
 interface AdminState { companies: Company[]; users: VUser[]; logos: Record<string, string>; logins?: Record<string, { count: number; last: number }>; }
@@ -163,6 +165,7 @@ export class VendorAdminService {
       subscriptions: u.subscriptions || [...DEFAULT_SUBS],
       createdAt: Date.now(),
       createdBy: u.createdBy || "—",
+      mcpAccess: !!this.getCompany(u.companyName)?.mcpAccess, // inherit the company default (OFF unless set)
     });
     this.persist();
   }
@@ -175,6 +178,8 @@ export class VendorAdminService {
   deleteUser(email: string): void { this.state.users = this.state.users.filter((u) => u.email.toLowerCase() !== email.toLowerCase()); this.persist(); }
   setSuspended(email: string, val: boolean): void { const u = this.getUser(email); if (u) { u.suspended = val; this.persist(); } }
   setFreeSignup(email: string, val: boolean): void { const u = this.getUser(email); if (u) { u.freeSignup = val; this.persist(); } }
+  setMcpAccess(email: string, val: boolean): void { const u = this.getUser(email); if (u) { u.mcpAccess = val; this.persist(); } }
+  setCompanyMcpAccess(name: string, val: boolean): void { const c = this.getCompany(name); if (c) { c.mcpAccess = val; this.persist(); } }
   toggleSubscription(email: string, id: string): void {
     const u = this.getUser(email); if (!u) return;
     const i = u.subscriptions.indexOf(id);

@@ -29,10 +29,12 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
           <p>{{ u.email }} · {{ u.companyName }}
             <span class="sub-badge" [ngClass]="u.suspended ? 'expired' : 'active'" style="margin-left:6px">{{ u.suspended ? "Suspended" : "Active" }}</span>
             <span *ngIf="u.freeSignup" class="sub-badge scheduled" style="margin-left:6px">Free account</span>
+            <span *ngIf="u.mcpAccess" class="sub-badge active" style="margin-left:6px">AI assistant access</span>
           </p>
         </div>
         <div style="display:flex;gap:8px">
           <button class="pbtn" (click)="resetPw()">Reset password</button>
+          <button class="pbtn" [class.primary]="u.mcpAccess" (click)="toggleMcp()" title="Allow this user to connect an AI assistant via MCP. Off by default; the assistant can read Market Insights but never dealer identity.">{{ u.mcpAccess ? "Disable AI assistant access" : "Enable AI assistant access" }}</button>
           <button class="pbtn" [class.primary]="u.freeSignup" (click)="toggleFreeSignup()" title="Free accounts see the teaser Home (platform activity only), not the subscriber dashboards">{{ u.freeSignup ? "Convert to subscriber" : "Mark as free account" }}</button>
           <button class="pbtn" [class.primary]="u.suspended" (click)="toggleSuspend()">{{ u.suspended ? "Reactivate" : "Suspend" }}</button>
         </div>
@@ -173,4 +175,5 @@ export class UserDetailComponent implements OnInit {
   resetPw(): void { alert("Password reset email sent to " + this.email + " (demo). The real account-setup/confirmation email flow is flagged for the dev team."); }
   toggleSuspend(): void { if (this.user) { this.va.setSuspended(this.user.email, !this.user.suspended); this.user = this.va.getUser(this.email); } }
   toggleFreeSignup(): void { if (this.user) { this.va.setFreeSignup(this.user.email, !this.user.freeSignup); this.user = this.va.getUser(this.email); } }
+  toggleMcp(): void { if (this.user) { this.va.setMcpAccess(this.user.email, !this.user.mcpAccess); this.user = this.va.getUser(this.email); } }
 }

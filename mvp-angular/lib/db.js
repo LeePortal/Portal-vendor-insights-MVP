@@ -50,15 +50,20 @@ function ensureReady() {
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_companies (
       name TEXT PRIMARY KEY, brands JSONB NOT NULL DEFAULT '[]', perms JSONB NOT NULL DEFAULT '{}',
       parents JSONB NOT NULL DEFAULT '[]', subs JSONB NOT NULL DEFAULT '[]', states JSONB NOT NULL DEFAULT '[]',
-      start_date TEXT NOT NULL DEFAULT '', end_date TEXT NOT NULL DEFAULT '')`);
+      start_date TEXT NOT NULL DEFAULT '', end_date TEXT NOT NULL DEFAULT '',
+      mcp_access BOOLEAN NOT NULL DEFAULT false)`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_users (
       email TEXT PRIMARY KEY, first_name TEXT, last_name TEXT, name TEXT, company_name TEXT,
       brands JSONB NOT NULL DEFAULT '[]', perms JSONB NOT NULL DEFAULT '{}', suspended BOOLEAN NOT NULL DEFAULT false,
       parents JSONB NOT NULL DEFAULT '[]', subs JSONB NOT NULL DEFAULT '[]', buying_groups JSONB NOT NULL DEFAULT '[]',
       states JSONB NOT NULL DEFAULT '[]', subscriptions JSONB NOT NULL DEFAULT '[]',
-      created_by TEXT, created_at BIGINT, free_signup BOOLEAN NOT NULL DEFAULT false)`);
-    // Existing DBs: add the self-signup flag if the table predates it (no-op once present).
+      created_by TEXT, created_at BIGINT, free_signup BOOLEAN NOT NULL DEFAULT false,
+      mcp_access BOOLEAN NOT NULL DEFAULT false)`);
+    // Existing DBs: add later flags if the table predates them (no-op once present).
     await p.query(`ALTER TABLE vendor_users ADD COLUMN IF NOT EXISTS free_signup BOOLEAN NOT NULL DEFAULT false`);
+    // MCP access — default OFF for every existing user and company (security: opt-in only).
+    await p.query(`ALTER TABLE vendor_users ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT false`);
+    await p.query(`ALTER TABLE vendor_companies ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT false`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logos (logo_key TEXT PRIMARY KEY, data_url TEXT NOT NULL)`);
     await p.query(`CREATE TABLE IF NOT EXISTS vendor_logins (email TEXT PRIMARY KEY, last_at BIGINT, count INTEGER NOT NULL DEFAULT 0)`);
     await p.query(`CREATE TABLE IF NOT EXISTS pp_brand_map (advertiser_id TEXT PRIMARY KEY, brands JSONB NOT NULL DEFAULT '[]')`);
@@ -88,7 +93,7 @@ function ensureReady() {
 }
 
 function rowToCompany(r) {
-  return { name: r.name, brands: A(r.brands), perms: r.perms || {}, parents: A(r.parents), subs: A(r.subs), states: A(r.states), start: r.start_date || "", end: r.end_date || "" };
+  return { name: r.name, brands: A(r.brands), perms: r.perms || {}, parents: A(r.parents), subs: A(r.subs), states: A(r.states), start: r.start_date || "", end: r.end_date || "", mcpAccess: !!r.mcp_access };
 }
 function rowToUser(r) {
   return {
@@ -97,6 +102,7 @@ function rowToUser(r) {
     parents: A(r.parents), subs: A(r.subs), buyingGroups: A(r.buying_groups), states: A(r.states),
     subscriptions: A(r.subscriptions), createdBy: r.created_by || "", createdAt: r.created_at ? Number(r.created_at) : undefined,
     freeSignup: !!r.free_signup,
+    mcpAccess: !!r.mcp_access,
   };
 }
 
@@ -129,18 +135,18 @@ async function replaceAll(data) {
     await client.query("DELETE FROM vendor_logos");
     for (const c of companies) {
       await client.query(
-        `INSERT INTO vendor_companies (name, brands, perms, parents, subs, states, start_date, end_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [c.name, J(c.brands), JSON.stringify(c.perms || {}), J(c.parents), J(c.subs), J(c.states), c.start || "", c.end || ""]);
+        `INSERT INTO vendor_companies (name, brands, perms, parents, subs, states, start_date, end_date, mcp_access)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [c.name, J(c.brands), JSON.stringify(c.perms || {}), J(c.parents), J(c.subs), J(c.states), c.start || "", c.end || "", !!c.mcpAccess]);
     }
     for (const u of users) {
       await client.query(
         `INSERT INTO vendor_users (email, first_name, last_name, name, company_name, brands, perms, suspended,
-           parents, subs, buying_groups, states, subscriptions, created_by, created_at, free_signup)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+           parents, subs, buying_groups, states, subscriptions, created_by, created_at, free_signup, mcp_access)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         [String(u.email || "").toLowerCase(), u.firstName || "", u.lastName || "", u.name || u.email, u.companyName || "",
          J(u.brands), JSON.stringify(u.perms || {}), !!u.suspended, J(u.parents), J(u.subs), J(u.buyingGroups), J(u.states),
-         J(u.subscriptions), u.createdBy || "", u.createdAt || null, !!u.freeSignup]);
+         J(u.subscriptions), u.createdBy || "", u.createdAt || null, !!u.freeSignup, !!u.mcpAccess]);
     }
     for (const k of Object.keys(logos)) {
       await client.query("INSERT INTO vendor_logos (logo_key, data_url) VALUES ($1,$2)", [k, logos[k]]);
@@ -245,7 +251,19 @@ function effective(user, company) {
     allowedBrands: A(user.brands),                 // visible-brands = focal-brand allow-list (empty = any)
     perms: user.perms || {},                       // control-visibility toggles for the user's dashboard
     suspended: !!user.suspended,
+    mcpAccess: !!user.mcpAccess,                    // may this user connect an AI assistant via MCP? default OFF
   };
+}
+
+/** Live MCP-access check for the gate. Default OFF: store unconfigured, user not found (admins/legacy),
+ *  or flag false all return false. Authoritative + immediate (revoking takes effect at once). */
+async function mcpAccessFor(email) {
+  if (!CONN) return false;
+  try {
+    const found = await getUserForLogin(email);
+    if (!found) return false;
+    return effective(found.user, found.company).mcpAccess === true;
+  } catch (e) { console.error("mcpAccessFor:", (e && e.message) || e); return false; }
 }
 
 /**
@@ -414,4 +432,4 @@ async function revokeTokenForUser(email, tokenId) {
   await pool().query(`UPDATE oauth_tokens SET revoked=true WHERE token_id=$1 AND email=$2`, [String(tokenId || ""), String(email || "").toLowerCase()]);
 }
 
-module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, createSignupUser, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, logRequest, usageByUser, mcpStats, recentRequests, registerOauthClient, getOauthClient, saveAuthCode, takeAuthCode, createRefreshToken, findRefreshToken, revokeRefreshToken, listConnectedApps, revokeTokenForUser, isConfigured: () => !!CONN };
+module.exports = { pool, ensureReady, getAll, replaceAll, getUserForLogin, createSignupUser, recordLogin, getLogo, effective, getPpBrandMap, setPpBrandMap, logRequest, usageByUser, mcpStats, recentRequests, registerOauthClient, getOauthClient, saveAuthCode, takeAuthCode, createRefreshToken, findRefreshToken, revokeRefreshToken, listConnectedApps, revokeTokenForUser, mcpAccessFor, isConfigured: () => !!CONN };

@@ -18,6 +18,8 @@ An assistant connects to a single MCP endpoint, signs in as a real Portal user, 
 
 The per-user data walls described below still govern the **dashboard UI** (and any direct, non-MCP API call). They are **not** applied on the MCP path. The MCP tools forward to the same `/api/brand-performance`, `/api/platform-stats`, and `/api/proposal-detail` endpoints; enforcement (when it applies) lives in `brand-performance.js` (`resolveTenant` + `baseFilter`).
 
+**Who can connect (MCP-access gate).** Connecting an assistant is opt-in per account. A per-user `mcpAccess` flag (plus a per-company default that seeds new users) defaults **OFF for every user and company**. It's enforced **live** — a DB lookup (`db.mcpAccessFor(email)`), not baked into the token, so disabling takes effect immediately — in two places: `/api/mcp` returns `403` for a non-enabled caller, and the OAuth consent screen refuses to issue a code with a clear message. Accounts not in the vendor store (admins, legacy) are OFF by default too. Admins toggle it on the user's admin page (and as a company default); the Profile "AI assistant access" card shows the connect URL only when the account is enabled.
+
 The dashboard has two layers. Only the first is a security boundary.
 
 ### Layer 1 — Data scope (row-level security)

@@ -148,6 +148,11 @@ module.exports = async (req, res) => {
     res.setHeader("WWW-Authenticate", `Bearer resource_metadata="https://${host}/.well-known/oauth-protected-resource"`);
     return res.status(401).json({ error: "Unauthorized" });
   }
+  // MCP-access gate (security): the account must be explicitly enabled. Default OFF for every user. Checked
+  // LIVE against the DB so disabling takes effect immediately, regardless of any token already issued.
+  if (!(await db.mcpAccessFor(claims.email))) {
+    return res.status(403).json({ error: "MCP access is not enabled for this account. Ask your Portal administrator to enable AI assistant access." });
+  }
 
   const proto = req.headers["x-forwarded-proto"] || "https";
   const host = req.headers["x-forwarded-host"] || req.headers.host;
